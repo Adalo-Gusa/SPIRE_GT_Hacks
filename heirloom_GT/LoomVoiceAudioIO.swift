@@ -13,8 +13,8 @@ final class LoomVoiceAudioIO {
     private var captureConverter: AVAudioConverter?
     private var playbackConverter: AVAudioConverter?
     private var playbackFormat: AVAudioFormat?
-    private var nextPlayTime: AVAudioTime?
     private var oddByte: UInt8?
+    private var captureBuffer = Data()
     private var started = false
     private let lock = NSLock()
 
@@ -97,11 +97,6 @@ final class LoomVoiceAudioIO {
         playbackFormat = player.outputFormat(forBus: 0)
         playbackConverter = playbackFormat.flatMap { AVAudioConverter(from: targetFormat, to: $0) }
 
-        // Scheduled playback times belong to the old engine timeline.
-        lock.lock()
-        nextPlayTime = nil
-        lock.unlock()
-
         let bufferSize = AVAudioFrameCount(max(hwFormat.sampleRate * 0.1, 1024))
         input.installTap(onBus: 0, bufferSize: bufferSize, format: hwFormat) { [weak self] buffer, _ in
             self?.capture(buffer, targetFormat: targetFormat)
@@ -141,8 +136,10 @@ final class LoomVoiceAudioIO {
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
         started = false
-        nextPlayTime = nil
+        lock.lock()
+        captureBuffer.removeAll()
         oddByte = nil
+        lock.unlock()
     }
 
     func playPCM16(_ data: Data) {
@@ -193,31 +190,8 @@ final class LoomVoiceAudioIO {
         }
         if dest.frameLength == 0 { return }
 
-        // Anchor to the player clock. AVAudioTime(sampleTime:atRate:) is only valid after playerTime(forNodeTime:).
-        let nodeTime = player.lastRenderTime
-        let playerTime = nodeTime.flatMap { player.playerTime(forNodeTime: $0) }
-        lock.lock()
-        let when: AVAudioTime?
-        if let playerTime, playerTime.isSampleTimeValid {
-            let rate = playerTime.sampleRate
-            let now = playerTime.sampleTime
-            let lead = AVAudioFramePosition(rate * 0.15)
-            var startSample = now + lead
-            if let queued = nextPlayTime, queued.isSampleTimeValid, queued.sampleTime > now {
-                startSample = queued.sampleTime
-            }
-            when = AVAudioTime(sampleTime: startSample, atRate: rate)
-            nextPlayTime = AVAudioTime(
-                sampleTime: startSample + AVAudioFramePosition(dest.frameLength),
-                atRate: rate
-            )
-        } else {
-            when = nil
-            nextPlayTime = nil
-        }
-        lock.unlock()
-
-        player.scheduleBuffer(dest, at: when, options: [])
+        // Schedule buffer sequentially in the player queue without artificial delay
+        player.scheduleBuffer(dest, at: nil, options: [])
         if !player.isPlaying {
             player.play()
         }
@@ -225,7 +199,6 @@ final class LoomVoiceAudioIO {
 
     func stopPlayback() {
         lock.lock()
-        nextPlayTime = nil
         oddByte = nil
         lock.unlock()
         player.stop()
@@ -297,14 +270,29 @@ final class LoomVoiceAudioIO {
             noteCaptureFailure(error?.localizedDescription ?? "converter produced no frames from \(buffer.format)")
             return
         }
+        let byteCount = Int(dest.frameLength) * 2
+        let rawData = Data(bytes: channels[0], count: byteCount)
+
         lock.lock()
         capturedChunks += 1
+        captureBuffer.append(rawData)
+        var chunksToEmit: [(Data, Float)] = []
+        let window = 4800 // 100ms at 24kHz Int16
+        while captureBuffer.count >= window {
+            let chunk = Data(captureBuffer.prefix(window))
+            captureBuffer.removeFirst(window)
+            chunk.withUnsafeBytes { raw in
+                if let ptr = raw.bindMemory(to: Int16.self).baseAddress {
+                    let rms = Self.rms(ptr, count: chunk.count / 2)
+                    chunksToEmit.append((chunk, rms))
+                }
+            }
+        }
         lock.unlock()
 
-        let byteCount = Int(dest.frameLength) * 2
-        let data = Data(bytes: channels[0], count: byteCount)
-        let rms = Self.rms(channels[0], count: Int(dest.frameLength))
-        onCapture?(data, rms)
+        for (chunk, rms) in chunksToEmit {
+            onCapture?(chunk, rms)
+        }
     }
 
     private static func rms(_ samples: UnsafePointer<Int16>, count: Int) -> Float {

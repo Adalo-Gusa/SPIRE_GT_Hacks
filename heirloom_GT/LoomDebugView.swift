@@ -16,16 +16,17 @@ private struct ChatLine: Identifiable {
 
 struct LoomDebugView: View {
     @StateObject private var voice = LoomVoiceSession()
+    @StateObject private var archive = LoomVoiceViewModel()
     @State private var messages: [ChatLine] = []
     @State private var draft = ""
     @State private var isBusy = false
-    @State private var threadId = UUID().uuidString
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 transcript
+                storyPanel
                 Divider()
                 composer
             }
@@ -69,6 +70,68 @@ struct LoomDebugView: View {
                     proxy.scrollTo(last, anchor: .bottom)
                 }
             }
+            .onChange(of: messages.last?.text) { _, _ in
+                if let last = messages.last?.id {
+                    proxy.scrollTo(last, anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    private var storyPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let artifact = archive.savedArtifacts.first {
+                artifactCard(artifact)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                if isBusy {
+                    ProgressView()
+                }
+                Button("Wrap Up & Save Story") {
+                    Task { await wrapUpStory() }
+                }
+                .disabled(isBusy || voice.isLive || !hasStoryTurns)
+                Button("New Conversation (Clear Thread)") {
+                    startFreshThread(note: "New conversation. Saved stories stay in Backboard.")
+                }
+                .disabled(isBusy)
+                Button("Run Cross-Session Story Test") {
+                    Task { await runCrossSessionStoryTest() }
+                }
+                .disabled(isBusy || voice.isLive)
+            }
+        }
+        .font(.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private func artifactCard(_ artifact: StoryArtifact) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(artifact.title)
+                .font(.subheadline.weight(.semibold))
+            Text(artifact.narrativeSummary)
+            labeled("Era", artifact.extractedEra ?? "—")
+            labeled("Location", artifact.location ?? "—")
+            labeled("People", artifact.peopleMentioned.joined(separator: ", "))
+            labeled("Passions", artifact.passionsOrHobbies.joined(separator: ", "))
+            labeled("Imagine", artifact.grokImaginePrompt)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func labeled(_ title: String, _ value: String) -> some View {
+        Text("\(title): \(value.isEmpty ? "—" : value)")
+            .foregroundStyle(.secondary)
+    }
+
+    private var hasStoryTurns: Bool {
+        messages.contains { line in
+            let text = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (line.sender == "You" || line.sender == "Loomie") && !text.isEmpty && text != "…"
         }
     }
 
@@ -135,7 +198,7 @@ struct LoomDebugView: View {
             append(.init(sender: "Test", text: "Loomie will say hello, then listen. Just talk — she answers when you pause. Tap the waveform again to hang up. Headphones help."))
         }
         bindVoice()
-        voice.start(threadId: threadId, openingText: openingText)
+        voice.start(threadId: archive.threadId, openingText: openingText)
     }
 
     private func bindVoice() {
@@ -173,7 +236,8 @@ struct LoomDebugView: View {
     @MainActor
     private func runMemoryRecallTest() async {
         isBusy = true
-        threadId = UUID().uuidString
+        archive.beginNewThread()
+        let threadId = archive.threadId
         messages.append(ChatLine(
             sender: "Test",
             text: "Starting memory recall test on a fresh thread. Prompt 2 will not repeat the story."
@@ -221,6 +285,109 @@ struct LoomDebugView: View {
             messages.append(ChatLine(
                 sender: "Test",
                 text: "❌ Recall check failed. place=\(recalledPlace) person=\(recalledPerson) leakedInPrompt2=\(leakedStory)"
+            ))
+        }
+        isBusy = false
+    }
+
+    @MainActor
+    private func wrapUpStory() async {
+        isBusy = true
+        if voice.isLive { voice.stop() }
+        let turns = messages.map { ConversationTurn(sender: $0.sender, text: $0.text) }
+        do {
+            let artifact = try await archive.finishAndSaveConversation(turns: turns)
+            messages = [ChatLine(
+                sender: "Test",
+                text: "Saved “\(artifact.title)” to Backboard and this phone. This is a new conversation."
+            )]
+        } catch {
+            print("[Loomie] wrap-up failed: \(error.localizedDescription)")
+            messages.append(ChatLine(sender: "Error", text: error.localizedDescription))
+        }
+        isBusy = false
+    }
+
+    @MainActor
+    private func startFreshThread(note: String) {
+        if voice.isLive { voice.stop() }
+        archive.beginNewThread()
+        draft = ""
+        messages = [ChatLine(sender: "Test", text: note)]
+    }
+
+    @MainActor
+    private func runCrossSessionStoryTest() async {
+        isBusy = true
+        if voice.isLive { voice.stop() }
+        archive.beginNewThread()
+        messages = [ChatLine(
+            sender: "Test",
+            text: "Cross-session test. Conversation 1 will be wrapped up, then a new thread will ask about the car project."
+        )]
+
+        let story = "In 1968 I spent the summer fixing cars with Uncle Bob. We restored a Mustang in his garage."
+        let firstThread = archive.threadId
+        messages.append(ChatLine(sender: "You", text: story))
+        do {
+            let firstReply = try await LoomService.shared.sendMessage(text: story, threadId: firstThread)
+            messages.append(ChatLine(sender: "Loomie", text: firstReply))
+        } catch {
+            messages.append(ChatLine(sender: "Error", text: error.localizedDescription))
+            messages.append(ChatLine(sender: "Test", text: "Cross-session test aborted: first conversation failed."))
+            isBusy = false
+            return
+        }
+
+        let turns = messages.map { ConversationTurn(sender: $0.sender, text: $0.text) }
+        do {
+            let artifact = try await archive.finishAndSaveConversation(turns: turns)
+            messages = [ChatLine(
+                sender: "Test",
+                text: "Wrapped up “\(artifact.title)”. Starting conversation 2 on a new thread."
+            )]
+        } catch {
+            messages.append(ChatLine(sender: "Error", text: error.localizedDescription))
+            messages.append(ChatLine(sender: "Test", text: "Cross-session test aborted: wrap-up failed."))
+            isBusy = false
+            return
+        }
+
+        try? await Task.sleep(for: .seconds(1.5))
+
+        let probe = "Do you remember what car project I worked on in my youth?"
+        let secondThread = archive.threadId
+        guard secondThread != firstThread else {
+            messages.append(ChatLine(sender: "Test", text: "Cross-session test aborted: thread id did not change."))
+            isBusy = false
+            return
+        }
+        messages.append(ChatLine(sender: "You", text: probe))
+        let secondReply: String
+        do {
+            secondReply = try await LoomService.shared.sendMessage(text: probe, threadId: secondThread)
+            messages.append(ChatLine(sender: "Loomie", text: secondReply))
+        } catch {
+            messages.append(ChatLine(sender: "Error", text: error.localizedDescription))
+            messages.append(ChatLine(sender: "Test", text: "Cross-session test aborted: recall turn failed."))
+            isBusy = false
+            return
+        }
+
+        let haystack = secondReply.lowercased()
+        let recalledYear = haystack.contains("1968")
+        let recalledPerson = haystack.contains("bob")
+        let recalledProject = haystack.contains("mustang") || haystack.contains("car") || haystack.contains("restor")
+        let leakedProbe = probe.lowercased().contains("1968") || probe.lowercased().contains("bob")
+        if recalledYear && recalledPerson && recalledProject && !leakedProbe {
+            messages.append(ChatLine(
+                sender: "Test",
+                text: "Recalled the 1968 car restoration with Uncle Bob from Backboard on a new thread."
+            ))
+        } else {
+            messages.append(ChatLine(
+                sender: "Test",
+                text: "Cross-session recall failed. year=\(recalledYear) person=\(recalledPerson) project=\(recalledProject)"
             ))
         }
         isBusy = false

@@ -90,21 +90,34 @@ actor LoomService {
     // MARK: - Memory recall
 
     private func fetchMemories(query: String, threadId: String) async -> [String] {
-        var byID: [String: String] = [:]
+        var ordered: [String] = []
+        var seen = Set<String>()
 
-        if let searched = try? await searchMemories(query: query) {
-            merge(searched, into: &byID)
+        func appendMemories(_ list: [BackboardMemory]) {
+            for memory in list {
+                let text = memory.displayText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { continue }
+                let key = memory.id ?? text
+                if !seen.contains(key) {
+                    seen.insert(key)
+                    ordered.append(text)
+                }
+            }
+        }
+
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedQuery.isEmpty, let searched = try? await searchMemories(query: trimmedQuery) {
+            appendMemories(searched)
         }
 
         if let listed = try? await listMemories() {
-            merge(listed, into: &byID)
+            appendMemories(listed)
         }
 
-        let facts = Array(byID.values).filter { !$0.isEmpty }
         if !threadId.isEmpty {
-            print("[Loomie] memory pool for thread \(threadId): \(facts)")
+            print("[Loomie] memory pool for thread \(threadId): \(ordered)")
         }
-        return facts
+        return ordered
     }
 
     private func searchMemories(query: String) async throws -> [BackboardMemory] {
@@ -127,14 +140,6 @@ actor LoomService {
             .appendingPathComponent("memories")
         let envelope: BackboardMemoryList = try await getJSON(url: url, headers: backboardHeaders)
         return envelope.memories ?? []
-    }
-
-    private func merge(_ memories: [BackboardMemory], into bag: inout [String: String]) {
-        for memory in memories {
-            let text = memory.displayText
-            guard !text.isEmpty else { continue }
-            bag[memory.id ?? text] = text
-        }
     }
 
     // MARK: - Grok
@@ -170,6 +175,125 @@ actor LoomService {
         guard !reply.isEmpty else { throw LoomError.emptyReply }
         print("[Loomie] grok reply: \(reply)")
         return reply
+    }
+
+    func extractStoryArtifact(from transcript: String) async throws -> StoryArtifact {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw LoomError.decoding("The conversation has no story to save.")
+        }
+        print("[Loomie] extracting story artifact")
+        let url = AppConfiguration.grokBaseURL.appendingPathComponent("chat/completions")
+        let messages = [
+            GrokMessage(role: "system", content: Self.archivistPrompt),
+            GrokMessage(role: "user", content: trimmed)
+        ]
+        let request = GrokJSONChatRequest(
+            model: AppConfiguration.grokModel,
+            messages: messages,
+            temperature: 0.2,
+            maxTokens: 900,
+            reasoningEffort: "none"
+        )
+        let response: GrokChatResponse = try await postJSON(url: url, body: request, headers: grokHeaders)
+        let raw = response.choices?.first?.message?.content?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        print("[Loomie] extraction raw: \(raw)")
+        guard !raw.isEmpty else { throw LoomError.emptyReply }
+        return try Self.decodeStoryArtifact(from: raw, transcript: trimmed)
+    }
+
+    /// Stores a biographical summary on the assistant, so a new thread can recall it.
+    func commitPermanentMemory(assistantId: String, factSummary: String) async throws {
+        let fact = factSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !fact.isEmpty else { throw LoomError.decoding("There is no fact summary to store.") }
+        print("[Loomie] committing permanent memory assistant=\(assistantId)")
+        let url = AppConfiguration.backboardBaseURL
+            .appendingPathComponent("assistants")
+            .appendingPathComponent(assistantId)
+            .appendingPathComponent("memories")
+        let body = BackboardAddMemoryRequest(
+            content: fact,
+            metadata: [
+                "source": "loomie",
+                "kind": "story_artifact",
+                "scope": "assistant"
+            ]
+        )
+        let _: BackboardAddMemoryResponse = try await postJSON(url: url, body: body, headers: backboardHeaders)
+        print("[Loomie] permanent memory stored")
+    }
+
+    private static let archivistPrompt = """
+    You are a biographical archivist. Analyze the following conversation between Loomie and an elder. Extract the key historical and biographical facts. Return ONLY a valid JSON object matching this schema:
+    {
+    "title": "Short catchy title (e.g., Rebuilding the '65 Mustang)",
+    "narrativeSummary": "1-2 sentence core biographical summary",
+    "extractedEra": "Year, decade, or life stage if mentioned, or null",
+    "location": "City, region, or landmark if mentioned, or null",
+    "peopleMentioned": ["List of family/friends mentioned"],
+    "passionsOrHobbies": ["Specific skills, trades, sports, or hobbies identified"],
+    "grokImaginePrompt": "A vivid, warm 1970s Polaroid or watercolor style prompt capturing the central scene without text or modern elements"
+    }
+    """
+
+    private static func decodeStoryArtifact(from raw: String, transcript: String) throws -> StoryArtifact {
+        let jsonText = extractJSONObject(from: raw)
+        guard let data = jsonText.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw LoomError.decoding("Story JSON could not be parsed. body=\(raw)")
+        }
+        func text(_ keys: String...) -> String? {
+            for key in keys {
+                guard let value = object[key] as? String else { continue }
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty, trimmed.lowercased() != "null" {
+                    return trimmed
+                }
+            }
+            return nil
+        }
+        func list(_ keys: String...) -> [String] {
+            for key in keys {
+                if let values = object[key] as? [String] {
+                    return values.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                }
+                if let values = object[key] as? [Any] {
+                    return values.compactMap { $0 as? String }
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                }
+            }
+            return []
+        }
+        guard let title = text("title"),
+              let narrativeSummary = text("narrativeSummary", "narrative_summary"),
+              let grokImaginePrompt = text("grokImaginePrompt", "grok_imagine_prompt") else {
+            throw LoomError.decoding("Story JSON was missing title, summary, or imagine prompt. body=\(raw)")
+        }
+        return StoryArtifact(
+            title: title,
+            narrativeSummary: narrativeSummary,
+            extractedEra: text("extractedEra", "extracted_era"),
+            location: text("location"),
+            peopleMentioned: list("peopleMentioned", "people_mentioned"),
+            passionsOrHobbies: list("passionsOrHobbies", "passions_or_hobbies"),
+            grokImaginePrompt: grokImaginePrompt,
+            rawTranscript: transcript
+        )
+    }
+
+    private static func extractJSONObject(from raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```") {
+            text = text.replacingOccurrences(of: "```json", with: "")
+            text = text.replacingOccurrences(of: "```", with: "")
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start <= end else {
+            return text
+        }
+        return String(text[start...end])
     }
 
     // MARK: - Memory persist
@@ -328,6 +452,31 @@ private struct BackboardMessageResponse: Decodable {
     let memoryOperationId: String?
 }
 
+private struct GrokJSONChatRequest: Encodable {
+    let model: String
+    let messages: [GrokMessage]
+    let temperature: Double
+    let maxTokens: Int
+    let reasoningEffort: String
+    let responseFormat: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case model, messages, temperature
+        case maxTokens = "max_tokens"
+        case reasoningEffort = "reasoning_effort"
+        case responseFormat = "response_format"
+    }
+
+    init(model: String, messages: [GrokMessage], temperature: Double, maxTokens: Int, reasoningEffort: String) {
+        self.model = model
+        self.messages = messages
+        self.temperature = temperature
+        self.maxTokens = maxTokens
+        self.reasoningEffort = reasoningEffort
+        self.responseFormat = ["type": "json_object"]
+    }
+}
+
 private struct GrokChatRequest: Encodable {
     let model: String
     let messages: [GrokMessage]
@@ -365,6 +514,16 @@ enum ConversationMemory {
         let stripped = collapsed.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
         guard !stripped.isEmpty else { return false }
 
+        // Never store questions as biographical facts
+        if text.contains("?") || isQuery(collapsed) {
+            return false
+        }
+
+        // Never store meta-talk, UI references, or conversational filler
+        if isFillerOrMeta(collapsed) {
+            return false
+        }
+
         let smallTalk: Set<String> = [
             "hi", "hello", "hey", "yo", "howdy", "hiya", "hi there",
             "hi loomie", "hello loomie", "hey loomie", "hey there",
@@ -374,21 +533,41 @@ enum ConversationMemory {
             "thanks", "thank you", "thanks loomie", "thank you loomie",
             "ok", "okay", "k", "sure", "yes", "yeah", "yep", "no", "nope",
             "bye", "goodbye", "see you", "good night", "goodnight",
-            "i'm good", "im good", "i am good", "i'm fine", "im fine"
+            "i'm good", "im good", "i am good", "i'm fine", "im fine",
+            "sounds good", "got it", "i see", "cool", "alright"
         ]
         if smallTalk.contains(stripped) { return false }
 
-        if hasFactSignal(collapsed) { return true }
-        return stripped.split(whereSeparator: { $0.isWhitespace }).count >= 6
+        return hasFactSignal(collapsed)
+    }
+
+    private static func isQuery(_ text: String) -> Bool {
+        let questionStarters = [
+            "what ", "whats ", "what's ", "where ", "where's ", "who ", "who's ",
+            "when ", "why ", "how ", "do you ", "did you ", "can you ", "could you ",
+            "tell me ", "remember ", "do you remember", "did i tell you"
+        ]
+        return questionStarters.contains { text.hasPrefix($0) }
+    }
+
+    private static func isFillerOrMeta(_ text: String) -> Bool {
+        let metaPhrases = [
+            "text bubble", "can you hear", "can you hear me", "microphone", "sound check",
+            "four hours of sleep", "you got that", "i guess", "i think so", "wait a minute",
+            "hold on", "testing", "one two three"
+        ]
+        return metaPhrases.contains { text.contains($0) }
     }
 
     private static func hasFactSignal(_ text: String) -> Bool {
         let needles = [
             "my ", "i was", "i am", "i'm ", "im ", "i worked", "i lived", "i grew",
             "brother", "sister", "mother", "father", "mom", "dad", "grandma", "grandpa",
-            "uncle", "aunt", "cousin", "husband", "wife", "son", "daughter",
-            "in 19", "in 20", "years ago", "born", "school", "worked at", "lived in",
-            "named", "family", "print shop"
+            "uncle", "aunt", "cousin", "husband", "wife", "son", "daughter", "niece", "nephew",
+            "in 19", "in 20", "years ago", "born", "school", "college", "university",
+            "worked at", "lived in", "named", "family", "print shop", "restor", "mustang",
+            "chicago", "fixing cars", "summer of", "married", "wedding", "job", "career",
+            "retired", "hometown", "neighborhood", "military", "army", "navy", "air force"
         ]
         return needles.contains { text.contains($0) }
     }

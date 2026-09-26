@@ -42,6 +42,15 @@ enum AppConfiguration {
     When they share a story, acknowledge a concrete detail and you may ask one gentle follow-up. Keep spoken replies to 1–3 sentences.
     """
 
+    // MARK: - MongoDB Atlas Configuration
+    static let mongoDBDatabase = secret("MONGODB_DATABASE").isEmpty ? "heirloom_db" : secret("MONGODB_DATABASE")
+    static let mongoDBCluster = secret("MONGODB_CLUSTER").isEmpty ? "TestCluster" : secret("MONGODB_CLUSTER")
+    static let mongoDBFamilyId = secret("HEIRLOOM_FAMILY_ID").isEmpty ? "fam_clarke_001" : secret("HEIRLOOM_FAMILY_ID")
+    static let atlasDataAPIKey = secret("ATLAS_DATA_API_KEY")
+    static let atlasDataAPIBaseURL = URL(string: secret("ATLAS_DATA_API_URL").isEmpty
+        ? "https://data.mongodb-api.com/app/data-heirloom/endpoint/data/v1"
+        : secret("ATLAS_DATA_API_URL"))!
+
     // MARK: - Secrets
 
     /// Reads a key from the Xcode scheme's environment variables, then from the bundled,

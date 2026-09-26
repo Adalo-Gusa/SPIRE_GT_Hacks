@@ -320,6 +320,11 @@ final class LoomVoiceSession: ObservableObject {
             audioIO?.stopPlayback()
             logger?.log("play.stop", ["reason": "barge-in", "dropped_ms": 0])
             currentAssistantText = ""
+            if responseActive || awaitingResponse {
+                responseActive = false
+                awaitingResponse = false
+                sendJSON(["type": "response.cancel"])
+            }
             setPhase(.listening)
 
         case "input_audio_buffer.speech_stopped":
