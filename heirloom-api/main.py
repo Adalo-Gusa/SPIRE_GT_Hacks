@@ -453,23 +453,24 @@ class FeedPostModel(BaseModel):
 
 
 @app.post("/posts", response_model=FeedPostModel, status_code=status.HTTP_201_CREATED, tags=["Feed Posts"])
-async def create_feed_post(post: FeedPostModel):
+async def create_feed_post(post: FeedPostModel, background_tasks: BackgroundTasks):
     collection = db_config.db["posts"]
     data = post.model_dump(by_alias=True)
     if not data.get("_id"):
-        import uuid
         data["_id"] = f"post_{uuid.uuid4().hex[:12]}"
     if not data.get("created_at"):
         data["created_at"] = datetime.datetime.now(datetime.timezone.utc)
     await collection.insert_one(data)
     created = await collection.find_one({"_id": data["_id"]})
-    return serialize_doc(created)
+    doc = serialize_doc(created)
+    background_tasks.add_task(sync_post_to_backboard, doc)
+    return doc
 
 
 @app.get("/posts", response_model=List[FeedPostModel], tags=["Feed Posts"])
 async def list_feed_posts(
-    family_id: Optional[str] = Query(None),
-    author_id: Optional[str] = Query(None),
+    family_id: Optional[str] = Query(None, description="Filter by family ID"),
+    author_id: Optional[str] = Query(None, description="Filter by author member ID"),
     limit: int = Query(50, ge=1, le=100)
 ):
     collection = db_config.db["posts"]
@@ -482,53 +483,6 @@ async def list_feed_posts(
     docs = await cursor.to_list(length=limit)
     return [serialize_doc(doc) for doc in docs]
 
-
-# =====================================================================
-# FEED POSTS DOMAIN MODELS & ENDPOINTS
-# =====================================================================
-
-class FeedPostModel(BaseModel):
-    id: Optional[str] = Field(alias="_id", default=None)
-    family_id: str = Field(default="fam_clarke_001")
-    author_id: str
-    author_name: str
-    author_avatar_url: Optional[str] = None
-    content: str
-    image_url: Optional[str] = None
-    post_url: Optional[str] = None
-    source: str = "feed"
-    passions: List[str] = Field(default_factory=list)
-    location: Optional[str] = None
-    created_at: Optional[datetime.datetime] = None
-    is_unread: bool = True
-
-    model_config = ConfigDict(populate_by_name=True, extra="allow")
-
-
-@app.post("/posts", response_model=FeedPostModel, status_code=status.HTTP_201_CREATED, tags=["Feed Posts"])
-async def create_post(post: FeedPostModel, background_tasks: BackgroundTasks):
-    collection = db_config.db["posts"]
-    data = post.model_dump(by_alias=True)
-    if not data.get("_id"):
-        data["_id"] = f"post_{uuid.uuid4().hex[:12]}"
-    data["created_at"] = data.get("created_at") or datetime.datetime.now(datetime.timezone.utc)
-    await collection.insert_one(data)
-    created = await collection.find_one({"_id": data["_id"]})
-    doc = serialize_doc(created)
-    background_tasks.add_task(sync_post_to_backboard, doc)
-    return doc
-
-
-@app.get("/posts", response_model=List[FeedPostModel], tags=["Feed Posts"])
-async def list_posts(
-    family_id: Optional[str] = Query(None, description="Filter by family ID"),
-    limit: int = Query(50, ge=1, le=100)
-):
-    collection = db_config.db["posts"]
-    query = {"family_id": family_id} if family_id else {}
-    cursor = collection.find(query).sort("created_at", -1).limit(limit)
-    docs = await cursor.to_list(length=limit)
-    return [serialize_doc(doc) for doc in docs]
 
 
 
