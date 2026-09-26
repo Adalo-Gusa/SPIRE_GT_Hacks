@@ -95,14 +95,18 @@ struct LoomDebugView: View {
             }
             .buttonStyle(.borderedProminent)
             .accessibilityLabel("Stop voice")
+            .accessibilityHint("Hangs up. Loomie answers on her own when you pause.")
+            .accessibilityValue(voice.sessionId)
         } else if !trimmed.isEmpty {
             Button {
-                let text = draft
+                let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                 draft = ""
+                guard !text.isEmpty else { return }
                 if voice.isLive {
                     voice.sendTypedText(text)
                 } else {
-                    Task { await send(text) }
+                    messages.append(ChatLine(sender: "You", text: text))
+                    startVoice(openingText: text)
                 }
             } label: {
                 Image(systemName: "arrow.up")
@@ -126,10 +130,12 @@ struct LoomDebugView: View {
         }
     }
 
-    private func startVoice() {
-        append(.init(sender: "Test", text: "Voice on. Use headphones. Say hi, share a memory, then ask Loomie what you just told her."))
+    private func startVoice(openingText: String? = nil) {
+        if openingText == nil {
+            append(.init(sender: "Test", text: "Loomie will say hello, then listen. Just talk — she answers when you pause. Tap the waveform again to hang up. Headphones help."))
+        }
         bindVoice()
-        voice.start(threadId: threadId)
+        voice.start(threadId: threadId, openingText: openingText)
     }
 
     private func bindVoice() {
@@ -162,24 +168,6 @@ struct LoomDebugView: View {
         for index in messages.indices {
             messages[index].streaming = false
         }
-    }
-
-    @MainActor
-    private func send(_ text: String) async {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        isBusy = true
-        messages.append(ChatLine(sender: "You", text: trimmed))
-        do {
-            let reply = try await LoomService.shared.sendMessage(text: trimmed, threadId: threadId)
-            messages.append(ChatLine(sender: "Loomie", text: reply))
-        } catch {
-            let detail = error.localizedDescription
-            print("[Loomie] send failed: \(detail)")
-            messages.append(ChatLine(sender: "Error", text: detail))
-        }
-        isBusy = false
     }
 
     @MainActor

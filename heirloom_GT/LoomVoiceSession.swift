@@ -30,11 +30,11 @@ final class LoomVoiceSession: ObservableObject {
         case .connecting:
             return "Connecting…"
         case .listening:
-            return "Listening · session \(sessionId)"
+            return "Listening…"
         case .thinking:
-            return "Thinking · session \(sessionId)"
+            return "Thinking…"
         case .speaking:
-            return "Speaking · session \(sessionId)"
+            return "Speaking…"
         }
     }
 
@@ -44,6 +44,12 @@ final class LoomVoiceSession: ObservableObject {
     private var logger: VoiceDebugLogger?
     private var pendingAudio: [Data] = []
     private var socketOpen = false
+    private var socketClosed = false
+    private var sessionReady = false
+    private var acceptMic = false
+    private var responseActive = false
+    private var awaitingResponse = false
+    private var queuedUserText: String?
     private var threadId = ""
     private var currentUserItemId: String?
     private var currentUserText = ""
@@ -66,7 +72,7 @@ final class LoomVoiceSession: ObservableObject {
     private var sessionFacts: [String] = []
     private var seedMemories: [String] = []
 
-    func start(threadId: String) {
+    func start(threadId: String, openingText: String? = nil) {
         guard phase == .idle else { return }
         self.threadId = threadId
         sessionId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
@@ -74,6 +80,13 @@ final class LoomVoiceSession: ObservableObject {
         errorMessage = nil
         pendingAudio.removeAll()
         socketOpen = false
+        socketClosed = false
+        sessionReady = false
+        acceptMic = false
+        responseActive = false
+        awaitingResponse = false
+        let opening = openingText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        queuedUserText = opening.isEmpty ? nil : opening
         didConfigureSession = false
         didGreet = false
         connectStarted = Date()
@@ -99,17 +112,14 @@ final class LoomVoiceSession: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isLive, !trimmed.isEmpty else { return }
         onTranscript?("You", trimmed)
-        sendJSON([
-            "type": "conversation.item.create",
-            "item": [
-                "type": "message",
-                "role": "user",
-                "content": [["type": "input_text", "text": trimmed]]
-            ]
-        ])
-        sendJSON(["type": "response.create"])
-        currentUserText = trimmed
-        currentUserItemId = UUID().uuidString
+        guard sessionReady, !responseActive, !awaitingResponse else {
+            queuedUserText = trimmed
+            if responseActive {
+                sendJSON(["type": "response.cancel"])
+            }
+            return
+        }
+        deliverUserText(trimmed)
     }
 
     // MARK: - Connect
@@ -233,6 +243,7 @@ final class LoomVoiceSession: ObservableObject {
                         self.listen()
                     }
                 case .failure(let error):
+                    if self.socketClosed { return }
                     self.fail("ws", error.localizedDescription)
                 }
             }
@@ -240,6 +251,7 @@ final class LoomVoiceSession: ObservableObject {
     }
 
     private func handle(_ message: URLSessionWebSocketTask.Message) {
+        guard !socketClosed else { return }
         switch message {
         case .string(let text):
             handleJSON(text)
@@ -282,10 +294,27 @@ final class LoomVoiceSession: ObservableObject {
         markSocketOpenIfNeeded()
 
         switch type {
-        case "session.created", "session.updated":
+        case "session.created":
             configureSessionIfNeeded()
-            setPhase(.listening)
-            greetIfNeeded(type)
+            if phase == .connecting {
+                setPhase(.listening)
+            }
+
+        case "session.updated":
+            let becameReady = !sessionReady
+            sessionReady = true
+            if becameReady {
+                if let text = queuedUserText {
+                    queuedUserText = nil
+                    didGreet = true
+                    deliverUserText(text)
+                } else {
+                    greetIfNeeded(type)
+                }
+            }
+            if phase == .connecting {
+                setPhase(.listening)
+            }
 
         case "input_audio_buffer.speech_started":
             audioIO?.stopPlayback()
@@ -315,6 +344,8 @@ final class LoomVoiceSession: ObservableObject {
             outDeltas = 0
             outBytes = 0
             currentAssistantText = ""
+            responseActive = true
+            awaitingResponse = false
             setPhase(.thinking)
 
         case "response.output_audio_transcript.delta":
@@ -337,15 +368,23 @@ final class LoomVoiceSession: ObservableObject {
                 "deltas": outDeltas,
                 "bytes": outBytes
             ])
+            responseActive = false
+            awaitingResponse = false
             persistUserTurn()
             onTurnFinished?()
-            setPhase(.listening)
+            if let text = queuedUserText {
+                queuedUserText = nil
+                deliverUserText(text)
+            } else {
+                openMicIfNeeded()
+                setPhase(.listening)
+            }
 
         case "error":
             let detail = (object["error"] as? [String: Any])?["message"] as? String
                 ?? object["message"] as? String
                 ?? "Voice session error"
-            fail("server", detail)
+            handleServerError(detail)
 
         default:
             break
@@ -357,7 +396,6 @@ final class LoomVoiceSession: ObservableObject {
         socketOpen = true
         logger?.log("ws.open", ["ms": Int(Date().timeIntervalSince(connectStarted) * 1000)])
         configureSessionIfNeeded()
-        flushPendingAudio()
         if phase == .connecting {
             setPhase(.listening)
         }
@@ -372,6 +410,7 @@ final class LoomVoiceSession: ObservableObject {
     private func greetIfNeeded(_ type: String) {
         guard type == "session.updated", !didGreet else { return }
         didGreet = true
+        awaitingResponse = true
         sendJSON([
             "type": "conversation.item.create",
             "item": [
@@ -404,20 +443,65 @@ final class LoomVoiceSession: ObservableObject {
             lastAudioInLog = Date()
         }
 
-        if !socketOpen {
-            if pendingAudio.count < 50 {
-                pendingAudio.append(data)
+        // Hold mic audio until the session is configured and the greeting turn has finished.
+        if !acceptMic || !socketOpen {
+            if pendingAudio.count >= 200 {
+                pendingAudio.removeFirst()
             }
+            pendingAudio.append(data)
             return
         }
         sendAudio(data)
     }
 
     private func flushPendingAudio() {
-        guard !pendingAudio.isEmpty else { return }
+        guard acceptMic, socketOpen, !pendingAudio.isEmpty else { return }
         logger?.log("audio.flush", ["chunks": pendingAudio.count])
         pendingAudio.forEach(sendAudio)
         pendingAudio.removeAll()
+    }
+
+    private func deliverUserText(_ text: String) {
+        currentUserItemId = UUID().uuidString
+        currentUserText = text
+        awaitingResponse = true
+        sendJSON([
+            "type": "conversation.item.create",
+            "item": [
+                "type": "message",
+                "role": "user",
+                "content": [["type": "input_text", "text": text]]
+            ]
+        ])
+        sendJSON(["type": "response.create"])
+    }
+
+    private func openMicIfNeeded() {
+        guard sessionReady, !acceptMic else { return }
+        acceptMic = true
+        flushPendingAudio()
+    }
+
+    private func handleServerError(_ detail: String) {
+        logger?.error(where: "server", message: detail)
+        let lowered = detail.lowercased()
+        let activeClash = lowered.contains("active response") || lowered.contains("in progress")
+        if activeClash {
+            return
+        }
+        let recoverable = lowered.contains("buffer too small") || lowered.contains("already")
+        if !recoverable {
+            errorMessage = detail
+            onTranscript?("Error", detail)
+        }
+        awaitingResponse = false
+        guard !responseActive else { return }
+        if let text = queuedUserText {
+            queuedUserText = nil
+            deliverUserText(text)
+            return
+        }
+        openMicIfNeeded()
     }
 
     private func sendAudio(_ data: Data) {
@@ -479,6 +563,7 @@ final class LoomVoiceSession: ObservableObject {
     }
 
     private func fail(_ whereFrom: String, _ message: String, ms: Int? = nil) {
+        if socketClosed { return }
         var extra: [String: Any] = [:]
         if let ms { extra["ms"] = ms }
         logger?.error(where: whereFrom, message: message, extra: extra)
@@ -488,6 +573,8 @@ final class LoomVoiceSession: ObservableObject {
     }
 
     private func tearDown() {
+        if socketClosed { return }
+        socketClosed = true
         logger?.log("ws.close", ["code": 1000, "reason": "client stop", "wasClean": true, "by": "client"])
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
@@ -496,6 +583,11 @@ final class LoomVoiceSession: ObservableObject {
         audioIO?.stop()
         audioIO = nil
         socketOpen = false
+        sessionReady = false
+        acceptMic = false
+        responseActive = false
+        awaitingResponse = false
+        queuedUserText = nil
         pendingAudio.removeAll()
         didGreet = false
         didConfigureSession = false

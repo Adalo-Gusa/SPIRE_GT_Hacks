@@ -13,3 +13,6 @@ xcuserdata/
 # Local API keys
 .env
 Secrets.env
+
+# Local Windows browser preview of Loomie. Not part of the iOS app.
+win-loomie/

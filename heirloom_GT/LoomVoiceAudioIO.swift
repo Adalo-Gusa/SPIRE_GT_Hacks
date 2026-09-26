@@ -135,24 +135,31 @@ final class LoomVoiceAudioIO {
         }
         if dest.frameLength == 0 { return }
 
+        // Anchor to the player clock. AVAudioTime(sampleTime:atRate:) is only valid after playerTime(forNodeTime:).
+        let nodeTime = player.lastRenderTime
+        let playerTime = nodeTime.flatMap { player.playerTime(forNodeTime: $0) }
         lock.lock()
-        let now = player.lastRenderTime ?? AVAudioTime(hostTime: mach_absolute_time())
-        let lead = AVAudioTime(sampleTime: now.sampleTime + AVAudioFramePosition(playbackFormat.sampleRate * 0.15), atRate: playbackFormat.sampleRate)
-        let when = nextPlayTime ?? lead
-        if when.sampleTime < now.sampleTime {
+        let when: AVAudioTime?
+        if let playerTime, playerTime.isSampleTimeValid {
+            let rate = playerTime.sampleRate
+            let now = playerTime.sampleTime
+            let lead = AVAudioFramePosition(rate * 0.15)
+            var startSample = now + lead
+            if let queued = nextPlayTime, queued.isSampleTimeValid, queued.sampleTime > now {
+                startSample = queued.sampleTime
+            }
+            when = AVAudioTime(sampleTime: startSample, atRate: rate)
             nextPlayTime = AVAudioTime(
-                sampleTime: now.sampleTime + AVAudioFramePosition(playbackFormat.sampleRate * 0.05),
-                atRate: playbackFormat.sampleRate
+                sampleTime: startSample + AVAudioFramePosition(dest.frameLength),
+                atRate: rate
             )
+        } else {
+            when = nil
+            nextPlayTime = nil
         }
-        let start = nextPlayTime ?? lead
-        nextPlayTime = AVAudioTime(
-            sampleTime: start.sampleTime + AVAudioFramePosition(dest.frameLength),
-            atRate: playbackFormat.sampleRate
-        )
         lock.unlock()
 
-        player.scheduleBuffer(dest, at: start, options: [])
+        player.scheduleBuffer(dest, at: when, options: [])
         if !player.isPlaying {
             player.play()
         }
