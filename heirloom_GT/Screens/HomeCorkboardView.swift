@@ -196,7 +196,9 @@ private struct BoardLayer: View, Equatable {
                         to: toLayer(ends.to),
                         color: connection.color,
                         curve: connection.curve,
-                        lineWidth: 5 * baseScale)
+                        lineWidth: 3.5 * baseScale)
+                        // A soft shadow lifts the string off the board, like twine held up by its pins.
+                        .shadow(color: .black.opacity(0.22), radius: 1.5 * baseScale, x: 2 * baseScale, y: 3 * baseScale)
                 }
             }
 

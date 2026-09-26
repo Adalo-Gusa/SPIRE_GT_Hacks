@@ -31,17 +31,19 @@ struct BoardPhoto: Identifiable {
     }
 }
 
-/// A pin stuck into a photo. It rides along when the photo moves or rotates.
+/// A pin stuck into a photo, where it rides along when the photo moves or rotates, or straight into the board.
 struct BoardPin: Identifiable {
     let id: UUID
-    var photoID: BoardPhoto.ID
+    /// The photo the pin is stuck into; nil for a pin in the bare board.
+    var photoID: BoardPhoto.ID?
     /// Where the pin sits relative to the photo's center, in the photo's own (unrotated) coordinates.
+    /// For a pin in the bare board, its position on the board.
     var offset: CGPoint
     /// Tilt relative to the photo.
     var tilt: Angle
     var color: Color
 
-    init(id: UUID = UUID(), photoID: BoardPhoto.ID, offset: CGPoint, tilt: Angle = .zero, color: Color = HeirloomColor.rose) {
+    init(id: UUID = UUID(), photoID: BoardPhoto.ID?, offset: CGPoint, tilt: Angle = .zero, color: Color = HeirloomColor.rose) {
         self.id = id
         self.photoID = photoID
         self.offset = offset
@@ -89,7 +91,8 @@ final class CorkboardModel {
 
     /// The pin's attachment point on the board, following its photo's position and rotation.
     func location(of pin: BoardPin) -> CGPoint? {
-        guard let photo = photo(id: pin.photoID) else { return nil }
+        guard let photoID = pin.photoID else { return pin.offset }
+        guard let photo = photo(id: photoID) else { return nil }
         let radians = photo.rotation.radians
         let rotated = CGPoint(
             x: pin.offset.x * cos(radians) - pin.offset.y * sin(radians),
@@ -98,7 +101,7 @@ final class CorkboardModel {
     }
 
     func tilt(of pin: BoardPin) -> Angle {
-        (photo(id: pin.photoID)?.rotation ?? .zero) + pin.tilt
+        (pin.photoID.flatMap(photo(id:))?.rotation ?? .zero) + pin.tilt
     }
 
     func endpoints(of connection: BoardConnection) -> (from: CGPoint, to: CGPoint)? {
@@ -148,7 +151,7 @@ extension CorkboardModel {
 
 extension CorkboardModel {
     /// The family tree: one polaroid per member, laid out in generation tiers by `CorkboardLayoutEngine`,
-    /// with a pin on each photo and strings for spouse and parent–child relationships.
+    /// with a pin on each photo, a pin between each couple, and slack strings for spouse and parent–child relationships.
     static func familyTree(from members: [MemberDocument]) -> CorkboardModel {
         let card = PolaroidCard.size
         // Run the engine at the board's polaroid size so its positions come out in board units.
@@ -182,16 +185,66 @@ extension CorkboardModel {
             pinByMember[node.member._id] = pin.id
         }
 
-        let connections: [BoardConnection] = layout.strings.compactMap { string in
-            guard let from = pinByMember[string.fromMemberId], let to = pinByMember[string.toMemberId] else { return nil }
-            switch string.type {
-            case .spouse:
-                return BoardConnection(from: from, to: to, color: HeirloomColor.rose, curve: .init(startBend: 0.04, endBend: 0.04))
-            case .parentChild, .passionConnection:
-                return BoardConnection(from: from, to: to, color: HeirloomColor.string, curve: .init(startBend: 0.06, endBend: -0.06))
+        let board = CorkboardModel(photos: photos, pins: pins)
+
+        // Each couple's string drapes into a pin in the bare board between them; their children hang from it.
+        var couplePin: [String: BoardPin.ID] = [:]
+        for string in layout.strings where string.type == .spouse {
+            guard let a = pinByMember[string.fromMemberId], let b = pinByMember[string.toMemberId],
+                  let from = board.pins.first(where: { $0.id == a }).flatMap(board.location(of:)),
+                  let to = board.pins.first(where: { $0.id == b }).flatMap(board.location(of:))
+            else { continue }
+            let key = coupleKey(string.fromMemberId, string.toMemberId)
+            let middle = BoardPin(photoID: nil, offset: CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + 34))
+            board.pins.append(middle)
+            couplePin[key] = middle.id
+            board.connect(a, to: middle.id, color: HeirloomColor.rose, curve: twine(key + "a", sag: 0.1, wiggle: 0.012))
+            board.connect(middle.id, to: b, color: HeirloomColor.rose, curve: twine(key + "b", sag: 0.1, wiggle: 0.012))
+        }
+
+        // One string per child from their parents' couple pin; otherwise one from each parent's own photo.
+        var parentsByChild: [String: [String]] = [:]
+        for string in layout.strings where string.type == .parentChild {
+            parentsByChild[string.toMemberId, default: []].append(string.fromMemberId)
+        }
+        for (child, parents) in parentsByChild.sorted(by: { $0.key < $1.key }) {
+            guard let childPin = pinByMember[child] else { continue }
+            if parents.count == 2, let couple = couplePin[coupleKey(parents[0], parents[1])] {
+                board.connect(couple, to: childPin, curve: twine(child, sag: 0.03, wiggle: 0.035))
+            } else {
+                for parent in parents.sorted() {
+                    guard let parentPin = pinByMember[parent] else { continue }
+                    board.connect(parentPin, to: childPin, curve: twine(parent + child, sag: 0.03, wiggle: 0.035))
+                }
             }
         }
 
-        return CorkboardModel(photos: photos, pins: pins, connections: connections)
+        for string in layout.strings where string.type == .passionConnection {
+            guard let from = pinByMember[string.fromMemberId], let to = pinByMember[string.toMemberId] else { continue }
+            board.connect(from, to: to, curve: twine(string.id, sag: 0.03, wiggle: 0.035))
+        }
+
+        return board
+    }
+
+    private static func coupleKey(_ a: String, _ b: String) -> String {
+        [a, b].sorted().joined(separator: "+")
+    }
+
+    /// A slack, gently wandering string whose bends are picked from `key`, so each string has its own shape
+    /// and keeps it across refreshes.
+    private static func twine(_ key: String, sag: CGFloat, wiggle: CGFloat) -> StringCurve {
+        // FNV-1a: Swift's `hashValue` changes every launch.
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in key.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        let unit = { (shift: UInt64) in CGFloat((hash >> shift) & 0xffff) / 0xffff }
+        let bend = (unit(0) - 0.5) * 0.12
+        return StringCurve(
+            startBend: bend,
+            endBend: -bend * 0.6,
+            sag: sag,
+            wiggle: wiggle * (0.7 + 0.6 * unit(16)),
+            waves: 1 + unit(32),
+            phase: unit(48) * 2 * .pi)
     }
 }
