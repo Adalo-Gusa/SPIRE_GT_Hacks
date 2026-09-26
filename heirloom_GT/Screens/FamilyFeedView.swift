@@ -30,7 +30,9 @@ public struct FamilyFeedView: View {
                     } else {
                         LazyVStack(spacing: 22) {
                             ForEach(archive.feedPosts) { post in
-                                FamilyFeedCard(post: post)
+                                FamilyFeedCard(
+                                    post: post,
+                                    authorImageName: archive.members.first { $0._id == post.authorId }?.placeholderImageName)
                             }
                         }
                     }
@@ -258,23 +260,22 @@ public struct FamilyFeedView: View {
 
 struct FamilyFeedCard: View {
     let post: FeedPostDocument
+    /// The author's placeholder drawing, when the author is a known family member.
+    var authorImageName: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header: Pushpin & Author Info
             HStack(spacing: 12) {
                 // Author Avatar
-                if let avatar = post.authorAvatarUrl, let url = URL(string: avatar) {
-                    AsyncImage(url: url) { phase in
-                        if let img = phase.image {
-                            img.resizable().scaledToFill()
-                        } else {
-                            Circle().fill(HeirloomColor.polaroidPhoto)
-                        }
-                    }
-                    .frame(width: 42, height: 42)
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(HeirloomColor.labelBorder, lineWidth: 1.5))
+                if let authorImageName {
+                    Image(authorImageName)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 42, height: 42)
+                        .background(HeirloomColor.polaroidPhoto)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(HeirloomColor.labelBorder, lineWidth: 1.5))
                 } else {
                     Circle()
                         .fill(HeirloomColor.rose.opacity(0.2))

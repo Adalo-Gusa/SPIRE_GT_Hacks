@@ -151,6 +151,7 @@ class MemberModel(BaseModel):
     passions: List[str] = Field(default_factory=list)
     interests: Optional[List[str]] = None # Convenience alias for passions
     avatar_url: Optional[str] = None
+    gender: Optional[str] = None  # "female" or "male"; picks the app's girl or guy placeholder
     bio: Optional[str] = None
     created_at: Optional[datetime.datetime] = None
     updated_at: Optional[datetime.datetime] = None
@@ -181,6 +182,7 @@ class MemberUpdateModel(BaseModel):
     passions: Optional[List[str]] = None
     interests: Optional[List[str]] = None
     avatar_url: Optional[str] = None
+    gender: Optional[str] = None  # "female" or "male"; picks the app's girl or guy placeholder
     bio: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")

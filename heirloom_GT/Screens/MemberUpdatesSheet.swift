@@ -108,28 +108,14 @@ struct MemberUpdatesSheet: View {
         VStack(spacing: 14) {
             HStack(spacing: 16) {
                 // Polaroid Avatar Well
-                if let avatar = member.avatarUrl, let url = URL(string: avatar) {
-                    AsyncImage(url: url) { phase in
-                        if let img = phase.image {
-                            img.resizable().scaledToFill()
-                        } else {
-                            Circle().fill(HeirloomColor.polaroidPhoto)
-                        }
-                    }
+                Image(member.placeholderImageName)
+                    .resizable()
+                    .scaledToFill()
                     .frame(width: 72, height: 72)
+                    .background(HeirloomColor.polaroidPhoto)
                     .clipShape(Circle())
                     .overlay(Circle().stroke(HeirloomColor.labelBorder, lineWidth: 2))
                     .shadow(color: .black.opacity(0.2), radius: 3, x: 2, y: 3)
-                } else {
-                    Circle()
-                        .fill(HeirloomColor.rose.opacity(0.2))
-                        .frame(width: 72, height: 72)
-                        .overlay {
-                            Text(String(member.name.prefix(1)))
-                                .font(.largeTitle.weight(.bold))
-                                .foregroundStyle(HeirloomColor.plum)
-                        }
-                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(member.name)
