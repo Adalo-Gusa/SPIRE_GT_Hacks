@@ -1,6 +1,7 @@
 # Xcode
 DerivedData/
 build/
+.voice-logs/
 *.xcuserstate
 xcuserdata/
 *.moved-aside
