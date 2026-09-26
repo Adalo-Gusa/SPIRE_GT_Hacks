@@ -204,9 +204,20 @@ private struct BoardLayer: View, Equatable {
 
             ForEach(board.pins) { pin in
                 if let location = board.location(of: pin) {
-                    Pushpin(color: pin.color)
-                        .pinned(at: toLayer(location), tilt: board.tilt(of: pin), scale: baseScale)
-                        .allowsHitTesting(false)
+                    switch pin.style {
+                    case .pushpin:
+                        Pushpin(color: pin.color)
+                            .pinned(at: toLayer(location), tilt: board.tilt(of: pin), scale: baseScale)
+                            .allowsHitTesting(false)
+                    case .small:
+                        Image("SmallPin")
+                            .resizable()
+                            .frame(width: 22 * baseScale, height: 22 * baseScale)
+                            .shadow(color: .black.opacity(0.25), radius: 1.5 * baseScale, x: 2 * baseScale, y: 2 * baseScale)
+                            .position(toLayer(location))
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
         }

@@ -42,13 +42,29 @@ struct BoardPin: Identifiable {
     /// Tilt relative to the photo.
     var tilt: Angle
     var color: Color
+    var style: Style
 
-    init(id: UUID = UUID(), photoID: BoardPhoto.ID?, offset: CGPoint, tilt: Angle = .zero, color: Color = HeirloomColor.rose) {
+    enum Style {
+        /// The full pushpin, seen from the side with its needle.
+        case pushpin
+        /// A small round pin head, seen from above (the knot in the middle of a couple's string).
+        case small
+    }
+
+    init(
+        id: UUID = UUID(),
+        photoID: BoardPhoto.ID?,
+        offset: CGPoint,
+        tilt: Angle = .zero,
+        color: Color = HeirloomColor.rose,
+        style: Style = .pushpin
+    ) {
         self.id = id
         self.photoID = photoID
         self.offset = offset
         self.tilt = tilt
         self.color = color
+        self.style = style
     }
 }
 
@@ -195,7 +211,10 @@ extension CorkboardModel {
                   let to = board.pins.first(where: { $0.id == b }).flatMap(board.location(of:))
             else { continue }
             let key = coupleKey(string.fromMemberId, string.toMemberId)
-            let middle = BoardPin(photoID: nil, offset: CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + 34))
+            let middle = BoardPin(
+                photoID: nil,
+                offset: CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + 34),
+                style: .small)
             board.pins.append(middle)
             couplePin[key] = middle.id
             board.connect(a, to: middle.id, color: HeirloomColor.rose, curve: twine(key + "a", sag: 0.1, wiggle: 0.012))
