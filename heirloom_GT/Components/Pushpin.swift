@@ -9,6 +9,8 @@ struct Pushpin: View {
     static let size = CGSize(width: 47.1958, height: 96.0167)
     /// Where the head meets the needle; strings attach here and the pin tilts around it.
     static let anchor = UnitPoint(x: 25.5 / size.width, y: 58.5 / size.height)
+    /// The needle's point; use this to stick the pin into an exact spot (like a place on the globe).
+    static let tipAnchor = UnitPoint(x: 24.2 / size.width, y: 92.5 / size.height)
 
     private static let needleOuter = SVGPathShape(
         "M23.9006 92.5362C21.2758 91.8855 19.5072 89.3956 19.5072 89.3956V42.8605H28.9463V89.3956C28.9463 89.3956 26.5254 93.1868 23.9006 92.5362Z",
@@ -51,10 +53,10 @@ struct Pushpin: View {
 }
 
 extension View {
-    /// Places a pushpin so its `Pushpin.anchor` sits exactly on `point`, tilted and scaled around that anchor.
-    func pinned(at point: CGPoint, tilt: Angle, scale: CGFloat = 1) -> some View {
+    /// Places a pushpin so `anchor` (by default where strings attach) sits exactly on `point`,
+    /// tilted and scaled around that anchor.
+    func pinned(at point: CGPoint, tilt: Angle, scale: CGFloat = 1, anchor: UnitPoint = Pushpin.anchor) -> some View {
         let size = Pushpin.size
-        let anchor = Pushpin.anchor
         return self
             .scaleEffect(scale, anchor: anchor)
             .rotationEffect(tilt, anchor: anchor)

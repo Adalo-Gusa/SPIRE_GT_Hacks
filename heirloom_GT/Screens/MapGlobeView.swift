@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import simd
 
 /// A place tied to a family story, shown as a pin on the globe.
 struct FamilyPlace: Identifiable {
@@ -40,8 +41,9 @@ struct MapGlobeView: View {
     var tint: Color = HeirloomColor.polaroidFrame
 
     @State private var position: MapCameraPosition = .camera(Self.globeCamera)
-    /// Latest camera, updated continuously so the pins re-project while the globe moves.
-    @State private var camera: MapCamera = Self.globeCamera
+    /// Where each pin is drawn. Recomputed in the map's camera callback, never while the view is drawing:
+    /// MapKit's coordinate conversions inside `body` stall SwiftUI's updates for the overlay.
+    @State private var placements: [FamilyPlace.ID: PinPlacement] = [:]
     @State private var selectedID: FamilyPlace.ID?
 
     private static let globeCamera = MapCamera(
@@ -53,6 +55,26 @@ struct MapGlobeView: View {
     }
 
     var body: some View {
+        globe
+            .ignoresSafeArea()
+        .overlay(alignment: .topTrailing) {
+            globeButton
+                .padding(.trailing, 16)
+                .padding(.top, 8)
+        }
+        .overlay(alignment: .bottom) {
+            if let place = selectedPlace {
+                placeCard(for: place)
+                    .padding(.horizontal, 24)
+                    // Clear the yarn button, which rises about 44pt above the top of the tab bar.
+                    .padding(.bottom, 56)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: selectedID)
+    }
+
+    private var globe: some View {
         MapReader { proxy in
             Map(position: $position)
                 // Satellite-based styles render as a 3D globe when zoomed out (standard style stays flat in the
@@ -65,36 +87,21 @@ struct MapGlobeView: View {
                 .contrast(0.85)
                 .colorMultiply(tint)
                 .onMapCameraChange(frequency: .continuous) { context in
-                    camera = context.camera
+                    placements = computePlacements(proxy: proxy, camera: context.camera)
                 }
                 // Pins are drawn over the map rather than as map annotations so the tint doesn't wash them out.
                 .overlay {
-                    pins(using: proxy)
+                    pins
                 }
         }
-        .ignoresSafeArea()
-        .overlay(alignment: .topTrailing) {
-            globeButton
-                .padding(.trailing, 16)
-                .padding(.top, 8)
-        }
-        .overlay(alignment: .bottom) {
-            if let place = selectedPlace {
-                placeCard(for: place)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.snappy, value: selectedID)
     }
 
     // MARK: - Pins
 
-    private func pins(using proxy: MapProxy) -> some View {
+    private var pins: some View {
         ZStack {
             ForEach(places) { place in
-                if isFacingCamera(place.coordinate), let point = proxy.convert(place.coordinate, to: .local) {
+                if let placement = placements[place.id] {
                     Button {
                         select(place)
                     } label: {
@@ -102,21 +109,56 @@ struct MapGlobeView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(place.name)
-                    .pinned(at: point, tilt: .degrees(-12), scale: selectedID == place.id ? 0.75 : 0.55)
+                    .opacity(placement.opacity)
+                    .pinned(
+                        at: placement.point,
+                        tilt: placement.tilt,
+                        scale: (selectedID == place.id ? 0.75 : 0.55) * placement.scale,
+                        anchor: Pushpin.tipAnchor)
                 }
             }
         }
     }
 
-    /// Whether a coordinate is on the side of the globe facing the camera (so pins don't show through the Earth).
-    private func isFacingCamera(_ coordinate: CLLocationCoordinate2D) -> Bool {
-        let earthRadius = 6_371_000.0
-        let center = camera.centerCoordinate
-        let lat1 = center.latitude * .pi / 180, lat2 = coordinate.latitude * .pi / 180
-        let deltaLon = (coordinate.longitude - center.longitude) * .pi / 180
-        let cosAngle = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(deltaLon)
-        // The horizon seen from `distance` above the surface.
-        return cosAngle > earthRadius / (earthRadius + camera.distance)
+    private func computePlacements(proxy: MapProxy, camera: MapCamera) -> [FamilyPlace.ID: PinPlacement] {
+        let globe = GlobeProjection.measure(proxy: proxy, camera: camera)
+        var result: [FamilyPlace.ID: PinPlacement] = [:]
+        for place in places {
+            result[place.id] = placement(for: place, proxy: proxy, globe: globe)
+        }
+        return result
+    }
+
+    private struct PinPlacement {
+        var point: CGPoint
+        var tilt: Angle
+        var scale: CGFloat
+        var opacity: Double
+    }
+
+    /// Where and how to draw a pin so it looks stuck into the globe's surface rather than floating over it.
+    private func placement(for place: FamilyPlace, proxy: MapProxy, globe: GlobeProjection?) -> PinPlacement? {
+        guard let globe else {
+            // Couldn't read the camera; fall back to MapKit's own (flat-map) position.
+            return proxy.convert(place.coordinate, to: .local).map {
+                PinPlacement(point: $0, tilt: .degrees(-8), scale: 1, opacity: 1)
+            }
+        }
+        // Hide anything on the far side of the Earth.
+        guard let projected = globe.project(place.coordinate), projected.isFacingCamera else { return nil }
+        let point = projected.point
+
+        // How far toward the globe's edge the pin is: 0 at the middle of the disc, 1 on the horizon.
+        let dx = point.x - globe.earthCenter.x, dy = point.y - globe.earthCenter.y
+        let edge = min(hypot(dx, dy) / globe.screenRadius, 1)
+        // Direction from the globe's middle, measured clockwise from straight up.
+        let direction = atan2(dx, -dy)
+        // Lean outward on the left and right, shrink toward the edge, and fade out at the horizon.
+        return PinPlacement(
+            point: point,
+            tilt: .degrees(Double(sin(direction) * edge) * 55),
+            scale: 1 - 0.3 * edge * edge,
+            opacity: edge > 0.9 ? Double((1 - edge) / 0.1) : 1)
     }
 
     // MARK: - Controls
@@ -178,4 +220,91 @@ struct MapGlobeView: View {
 
 #Preview {
     MapGlobeView()
+}
+
+/// Projects coordinates onto the globe the way MapKit draws it.
+///
+/// `MapProxy.convert` doesn't know about the globe: it places points as if on the flat (Web Mercator) map,
+/// which matches the globe near the middle of the screen but drifts badly toward the edges, and even puts
+/// far-side places out in space. So this rebuilds MapKit's camera (a perspective camera `distance` above the
+/// center coordinate, turned by `heading` and tilted by `pitch`) and projects onto a real sphere. The lens
+/// scale is calibrated each frame from MapKit's own scale at the screen center, where flat and globe agree.
+private struct GlobeProjection {
+    struct Projected {
+        var point: CGPoint
+        /// Whether the place is on the side of the Earth facing the camera.
+        var isFacingCamera: Bool
+    }
+
+    /// Screen position of the camera's target (MapKit keeps it at the middle of the view).
+    private var viewCenter: CGPoint
+    /// Lens scale in points (screen distance per unit of view-space slope).
+    private var focal: Double
+    /// Camera position and orientation, in Earth radii with the Earth's center at the origin.
+    private var eye: SIMD3<Double>
+    private var viewDirection: SIMD3<Double>
+    private var screenUp: SIMD3<Double>
+    private var screenRight: SIMD3<Double>
+
+    static func measure(proxy: MapProxy, camera: MapCamera) -> GlobeProjection? {
+        let target = camera.centerCoordinate
+        guard let viewCenter = proxy.convert(target, to: .local) else { return nil }
+
+        // Calibrate: a tiny north/south step near the center shows how many points one radian of arc covers.
+        let step = 0.2
+        let stepLatitude = target.latitude >= 0 ? target.latitude - step : target.latitude + step
+        guard let stepped = proxy.convert(
+            CLLocationCoordinate2D(latitude: stepLatitude, longitude: target.longitude), to: .local)
+        else { return nil }
+        let pointsPerRadian = Double(hypot(stepped.x - viewCenter.x, stepped.y - viewCenter.y)) / (step * .pi / 180)
+        let distance = camera.distance / 6_371_000
+        guard pointsPerRadian > 0, distance > 0 else { return nil }
+
+        let up = unitVector(target)
+        let lambda = target.longitude * .pi / 180, phi = target.latitude * .pi / 180
+        let east = SIMD3(-sin(lambda), cos(lambda), 0)
+        let north = SIMD3(-sin(phi) * cos(lambda), -sin(phi) * sin(lambda), cos(phi))
+        let heading = camera.heading * .pi / 180, pitch = camera.pitch * .pi / 180
+        let forward = north * cos(heading) + east * sin(heading)
+
+        let eye = up + (up * cos(pitch) - forward * sin(pitch)) * distance
+        let viewDirection = simd_normalize(up - eye)
+        let screenUp = forward * cos(pitch) + up * sin(pitch)
+        return GlobeProjection(
+            viewCenter: viewCenter,
+            focal: pointsPerRadian * distance,
+            eye: eye,
+            viewDirection: viewDirection,
+            screenUp: screenUp,
+            screenRight: simd_cross(viewDirection, screenUp))
+    }
+
+    func project(_ coordinate: CLLocationCoordinate2D) -> Projected? {
+        let surface = Self.unitVector(coordinate)
+        return project(surface).map { Projected(point: $0, isFacingCamera: simd_dot(surface, eye) > 1) }
+    }
+
+    /// Where the middle of the Earth lands on screen; pins lean away from it.
+    var earthCenter: CGPoint { project(SIMD3(0, 0, 0)) ?? viewCenter }
+
+    /// Radius of the globe's outline on screen.
+    var screenRadius: CGFloat {
+        let eyeDistance = simd_length(eye)
+        guard eyeDistance > 1 else { return .greatestFiniteMagnitude }
+        return CGFloat(focal * tan(asin(1 / eyeDistance)))
+    }
+
+    private func project(_ position: SIMD3<Double>) -> CGPoint? {
+        let offset = position - eye
+        let depth = simd_dot(offset, viewDirection)
+        guard depth > 0 else { return nil }
+        return CGPoint(
+            x: viewCenter.x + simd_dot(offset, screenRight) / depth * focal,
+            y: viewCenter.y - simd_dot(offset, screenUp) / depth * focal)
+    }
+
+    private static func unitVector(_ coordinate: CLLocationCoordinate2D) -> SIMD3<Double> {
+        let phi = coordinate.latitude * .pi / 180, lambda = coordinate.longitude * .pi / 180
+        return SIMD3(cos(phi) * cos(lambda), cos(phi) * sin(lambda), sin(phi))
+    }
 }

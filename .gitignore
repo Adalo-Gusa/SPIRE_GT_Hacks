@@ -8,3 +8,7 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Local API keys (never commit)
+.env
+Secrets.env
