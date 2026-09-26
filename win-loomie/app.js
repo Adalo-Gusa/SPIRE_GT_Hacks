@@ -15,6 +15,12 @@ const memoryTestEl = document.querySelector("#memory-test");
 const storyTestEl = document.querySelector("#story-test");
 const mongoTestEl = document.querySelector("#mongo-test");
 const searchConnectionsEl = document.querySelector("#search-connections");
+const viewCorkboardEl = document.querySelector("#view-corkboard");
+const corkboardOverlayEl = document.querySelector("#corkboard-overlay");
+const corkboardCloseEl = document.querySelector("#corkboard-close");
+const corkboardRefreshEl = document.querySelector("#corkboard-refresh");
+const corkboardSvgEl = document.querySelector("#corkboard-svg");
+const corkboardCardsEl = document.querySelector("#corkboard-cards");
 const wrapUpStoryEl = document.querySelector("#wrap-up-story");
 const newThreadEl = document.querySelector("#new-thread");
 const artifactCardEl = document.querySelector("#artifact-card");
@@ -125,6 +131,7 @@ function render() {
   storyTestEl.disabled = busy || live;
   if (mongoTestEl) mongoTestEl.disabled = busy || live;
   if (searchConnectionsEl) searchConnectionsEl.disabled = busy || live;
+  if (viewCorkboardEl) viewCorkboardEl.disabled = busy;
   if (wrapUpStoryEl) wrapUpStoryEl.disabled = busy || live || !hasStoryTurns();
   if (newThreadEl) newThreadEl.disabled = busy;
   draftEl.disabled = busy;
@@ -938,6 +945,99 @@ searchConnectionsEl?.addEventListener("click", async () => {
   }
   busy = false;
   render();
+});
+
+async function loadAndRenderCorkboard() {
+  try {
+    const res = await fetch("/api/tree");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to load tree layout");
+    corkboardSvgEl.innerHTML = "";
+    corkboardCardsEl.innerHTML = "";
+
+    corkboardSvgEl.setAttribute("viewBox", `0 0 ${data.canvas_width} ${data.canvas_height}`);
+    corkboardSvgEl.style.width = `${data.canvas_width}px`;
+    corkboardSvgEl.style.height = `${data.canvas_height}px`;
+
+    // Render Generation Tier Divider Guides
+    for (const tier of (data.generation_tiers || [])) {
+      const guide = document.createElement("div");
+      guide.className = "corkboard-tier-guide";
+      guide.style.top = `${tier.y}px`;
+      guide.textContent = tier.title;
+      corkboardCardsEl.appendChild(guide);
+    }
+
+    // Render Red Twine Strings
+    for (const str of (data.strings || [])) {
+      const midX = (str.from_x + str.to_x) / 2;
+      const midY = (str.from_y + str.to_y) / 2 + (str.sag_pixels || 16);
+      const d = `M ${str.from_x} ${str.from_y} Q ${midX} ${midY} ${str.to_x} ${str.to_y}`;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      path.setAttribute("stroke", str.color || "#d63031");
+      path.setAttribute("stroke-width", str.type === "spouse" ? "2.8" : "2.2");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke-linecap", "round");
+      path.style.filter = "drop-shadow(1px 2px 3px rgba(0,0,0,0.35))";
+      corkboardSvgEl.appendChild(path);
+    }
+
+    // Render Evidence Cards
+    for (const node of (data.nodes || [])) {
+      const card = document.createElement("div");
+      card.className = "corkboard-card";
+      card.style.left = `${node.x}px`;
+      card.style.top = `${node.y}px`;
+      card.style.transform = `rotate(${node.rotation_deg}deg)`;
+
+      const pin = document.createElement("div");
+      pin.className = "corkboard-pin";
+      pin.style.background = node.pin_color || "#e84118";
+
+      const photo = document.createElement("div");
+      photo.className = "corkboard-photo";
+      if (node.avatar_url) {
+        const img = document.createElement("img");
+        img.src = node.avatar_url;
+        img.alt = node.name;
+        img.onerror = () => {
+          photo.innerHTML = `<span class="initials">${escapeHtml(node.name.slice(0, 2))}</span>`;
+        };
+        photo.appendChild(img);
+      } else {
+        photo.innerHTML = `<span class="initials">${escapeHtml(node.name.slice(0, 2))}</span>`;
+      }
+
+      const info = document.createElement("div");
+      info.className = "corkboard-info";
+      info.innerHTML = `
+        <div class="corkboard-name">${escapeHtml(node.name)}</div>
+        <div class="corkboard-gen">Gen ${node.generation_tier}${node.birth_year ? ` · b. ${node.birth_year}` : ""}</div>
+      `;
+
+      card.appendChild(pin);
+      card.appendChild(photo);
+      card.appendChild(info);
+      corkboardCardsEl.appendChild(card);
+    }
+
+    corkboardOverlayEl.hidden = false;
+  } catch (err) {
+    addLine("Error", `Corkboard layout error: ${err.message}`);
+  }
+}
+
+viewCorkboardEl?.addEventListener("click", () => {
+  loadAndRenderCorkboard();
+});
+
+corkboardRefreshEl?.addEventListener("click", () => {
+  loadAndRenderCorkboard();
+});
+
+corkboardCloseEl?.addEventListener("click", () => {
+  if (corkboardOverlayEl) corkboardOverlayEl.hidden = true;
 });
 
 newThreadEl?.addEventListener("click", () => {

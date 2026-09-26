@@ -143,6 +143,14 @@ except Exception as _agent_err:
     ARCHIVE_AGENT = None
 
 
+try:
+    from tree_engine import FamilyCorkboardLayoutEngine
+except Exception as _tree_err:
+    print(f"[Loomie] FamilyCorkboardLayoutEngine init note: {_tree_err}")
+    FamilyCorkboardLayoutEngine = None
+
+
+
 def should_store(text: str) -> bool:
     collapsed = text.lower().strip()
     stripped = collapsed.strip(" \t\r\n.,!?;:\"'()[]{}")
@@ -505,6 +513,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(503, {"error": "Archive agent not initialized"})
             return
+        elif path in ("/api/tree", "/api/family/corkboard-layout"):
+            db = get_mongo_db()
+            if db is None or FamilyCorkboardLayoutEngine is None:
+                self._json(503, {"error": "Database or Tree Engine not available"})
+                return
+            members = list(db.members.find({"family_id": "fam_clarke_001"}))
+            engine = FamilyCorkboardLayoutEngine(family_id="fam_clarke_001")
+            layout = engine.build_layout(members)
+            self._json(200, layout.model_dump())
+            return
         name = STATIC.get(path)
         if not name:
             self.send_error(404)
@@ -614,6 +632,56 @@ class Handler(BaseHTTPRequestHandler):
                         self._json(500, {"error": f"Connection search failed: {err}"})
                         return
                 self._json(503, {"error": "Archive agent not initialized"})
+            elif path == "/api/tree/add-member":
+                db = get_mongo_db()
+                if db is None or FamilyCorkboardLayoutEngine is None:
+                    self._json(503, {"error": "Database or Tree Engine not available"})
+                    return
+                name = str(payload.get("name") or "").strip()
+                if not name:
+                    self._json(400, {"error": "Name is required"})
+                    return
+                slug_name = re.sub(r"[^a-zA-Z0-9]+", "_", name.lower()).strip("_")
+                mid = f"member_{slug_name}"
+                generation_tier = int(payload.get("generation_tier") or 1)
+                spouse_id = payload.get("spouse_id") or None
+                parents = list(payload.get("parents") or [])
+                children = list(payload.get("children") or [])
+                passions = list(payload.get("passions") or [])
+                bio = payload.get("bio") or f"Family member. {name}."
+                now = datetime.datetime.now(datetime.timezone.utc)
+                doc = {
+                    "_id": mid,
+                    "family_id": "fam_clarke_001",
+                    "name": name,
+                    "generation_tier": generation_tier,
+                    "birth_year": payload.get("birth_year") or (1950 if generation_tier == 1 else 1978 if generation_tier == 2 else 2005),
+                    "spouse_id": spouse_id,
+                    "parents": parents,
+                    "children": children,
+                    "passions": passions,
+                    "bio": bio,
+                    "avatar_url": payload.get("avatar_url") or "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                db.members.update_one({"_id": mid}, {"$set": doc}, upsert=True)
+                if spouse_id:
+                    db.members.update_one({"_id": spouse_id}, {"$set": {"spouse_id": mid}})
+                for pid in parents:
+                    db.members.update_one({"_id": pid}, {"$addToSet": {"children": mid}})
+                for cid in children:
+                    db.members.update_one({"_id": cid}, {"$addToSet": {"parents": mid}})
+
+                members = list(db.members.find({"family_id": "fam_clarke_001"}))
+                engine = FamilyCorkboardLayoutEngine(family_id="fam_clarke_001")
+                layout = engine.build_layout(members)
+                self._json(200, {
+                    "ok": True,
+                    "added_member_id": mid,
+                    "layout": layout.model_dump(),
+                })
+                return
             elif path == "/api/story/test-mongo":
                 db = get_mongo_db()
                 if db is None:

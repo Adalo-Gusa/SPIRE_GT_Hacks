@@ -30,8 +30,26 @@
       <button type="button" id="story-test">Run Cross-Session Story Test</button>
       <button type="button" id="mongo-test">Test MongoDB Atlas</button>
       <button type="button" id="search-connections">Explore Connections (Grok)</button>
+      <button type="button" id="view-corkboard">View Corkboard Tree</button>
     </footer>
   </div>
+
+  <div id="corkboard-overlay" class="corkboard-overlay" hidden>
+    <div class="corkboard-header">
+      <h2>Family Corkboard Tree</h2>
+      <div class="corkboard-actions">
+        <button type="button" id="corkboard-refresh">Refresh Layout</button>
+        <button type="button" id="corkboard-close">✕ Close</button>
+      </div>
+    </div>
+    <div class="corkboard-viewport">
+      <div id="corkboard-board" class="corkboard-board">
+        <svg id="corkboard-svg" class="corkboard-svg"></svg>
+        <div id="corkboard-cards"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="/app.js" type="module"></script>
 </body>
 </html>

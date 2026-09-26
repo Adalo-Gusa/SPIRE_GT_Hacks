@@ -212,6 +212,16 @@ async def create_member(member: MemberModel):
     data["updated_at"] = datetime.datetime.now(datetime.timezone.utc)
 
     result = await collection.insert_one(data)
+    new_id = str(result.inserted_id)
+
+    # Automatic bidirectional relationship healing
+    if data.get("spouse_id"):
+        await collection.update_one({"_id": data["spouse_id"]}, {"$set": {"spouse_id": new_id}})
+    for parent_id in (data.get("parents") or []):
+        await collection.update_one({"_id": parent_id}, {"$addToSet": {"children": new_id}})
+    for child_id in (data.get("children") or []):
+        await collection.update_one({"_id": child_id}, {"$addToSet": {"parents": new_id}})
+
     created = await collection.find_one({"_id": result.inserted_id})
     return serialize_doc(created)
 
@@ -543,4 +553,21 @@ async def archive_digest(family_id: str = "fam_clarke_001"):
     if archive_agent_instance is None:
         raise HTTPException(status_code=503, detail="Archive Manager Agent not initialized.")
     return archive_agent_instance.get_archive_digest(family_id=family_id)
+
+
+# --- Corkboard Tree Auto-Orientation Layout Endpoint ---
+from tree_engine import FamilyCorkboardLayoutEngine
+
+@app.get("/api/tree", tags=["Corkboard Tree"])
+@app.get("/api/family/corkboard-layout", tags=["Corkboard Tree"])
+async def get_corkboard_tree(family_id: str = "fam_clarke_001"):
+    """Returns auto-oriented 2D corkboard layout with node coordinates, pushpins,
+    rotation angles, and conspiracy red twine strings.
+    """
+    collection = db_config.db["members"]
+    cursor = collection.find({"family_id": family_id})
+    members = await cursor.to_list(length=200)
+    engine = FamilyCorkboardLayoutEngine(family_id=family_id)
+    layout = engine.build_layout(members)
+    return layout.model_dump()
 

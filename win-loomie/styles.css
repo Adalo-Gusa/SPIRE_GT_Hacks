@@ -219,3 +219,170 @@ footer button {
   width: fit-content;
 }
 
+/* --- Conspiracy Corkboard Modal & Canvas --- */
+.corkboard-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 16, 14, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+
+.corkboard-overlay[hidden] {
+  display: none;
+}
+
+.corkboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #2d261e;
+  color: #f5ebe0;
+  border-bottom: 2px solid #4a3b2c;
+}
+
+.corkboard-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  font-family: Georgia, serif;
+  letter-spacing: 0.5px;
+}
+
+.corkboard-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.corkboard-actions button {
+  background: #3e3224;
+  color: #fff;
+  border: 1px solid #6b553e;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.corkboard-viewport {
+  flex: 1;
+  overflow: auto;
+  background: #d4b28c;
+  background-image: radial-gradient(rgba(80, 50, 20, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+  padding: 30px;
+}
+
+.corkboard-board {
+  position: relative;
+  min-width: 1400px;
+  min-height: 950px;
+}
+
+.corkboard-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.corkboard-card {
+  position: absolute;
+  width: 160px;
+  height: 190px;
+  background: #faf8f5;
+  border-radius: 3px;
+  box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.15);
+  padding: 12px 10px 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 2;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.corkboard-card:hover {
+  transform: scale(1.05) !important;
+  box-shadow: 4px 8px 18px rgba(0, 0, 0, 0.38);
+  z-index: 10;
+}
+
+.corkboard-photo {
+  width: 136px;
+  height: 110px;
+  background: #e2dbce;
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.corkboard-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.corkboard-photo .initials {
+  font-size: 28px;
+  font-weight: bold;
+  font-family: Georgia, serif;
+  color: #6b553e;
+}
+
+.corkboard-info {
+  margin-top: 6px;
+  text-align: center;
+  width: 100%;
+}
+
+.corkboard-name {
+  font-family: Georgia, serif;
+  font-size: 13px;
+  font-weight: bold;
+  color: #2c251e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.corkboard-gen {
+  font-size: 10px;
+  font-family: monospace;
+  color: #8c7355;
+  margin-top: 2px;
+}
+
+.corkboard-pin {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.45);
+  z-index: 5;
+}
+
+.corkboard-tier-guide {
+  position: absolute;
+  left: 20px;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: bold;
+  color: rgba(90, 60, 30, 0.45);
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+
