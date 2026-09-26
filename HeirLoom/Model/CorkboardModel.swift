@@ -171,7 +171,7 @@ extension CorkboardModel {
                 memberId: node.member._id,
                 center: CGPoint(x: node.position.x + node.size.width / 2, y: node.position.y + node.size.height / 2),
                 rotation: .degrees(node.rotationDegrees),
-                imageName: node.member.placeholderImageName,
+                imageURL: node.member.avatarUrl.flatMap(URL.init(string:)),
                 caption: node.member.name)
             photos.append(photo)
 

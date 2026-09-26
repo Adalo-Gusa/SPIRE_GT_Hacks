@@ -57,6 +57,7 @@ struct MainTabView: View {
                     .zIndex(1)
             }
         }
+        .environmentObject(archive)
         .task { await archive.refresh() }
         .onChange(of: selection) { _, newSelection in
             if newSelection != AppTab.home.id { closeChat() }
@@ -106,9 +107,6 @@ struct MainTabView: View {
                 }
             }
         }
-        // Last, so the feed sheet presented above gets the archive too (a sheet only sees the environment
-        // from where it's attached; without it, the feed crashes the moment it opens).
-        .environmentObject(archive)
     }
 
     private func openChat() {
@@ -155,10 +153,7 @@ struct MainTabView: View {
         case AppTab.records.id:
             RecordsView()
         case AppTab.map.id:
-            // The globe keeps rendering while it's alive, so it only exists while its tab is selected.
-            if selection == AppTab.map.id {
-                MapGlobeView(places: archive.places)
-            }
+            MapGlobeView(places: archive.places)
         default:
             ContentUnavailableView("Coming soon", systemImage: "hammer")
         }
