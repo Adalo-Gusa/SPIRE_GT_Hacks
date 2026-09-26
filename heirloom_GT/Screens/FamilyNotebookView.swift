@@ -4,6 +4,7 @@ import SwiftUI
 struct FamilyNotebookView: View {
     @EnvironmentObject private var archive: FamilyArchive
     @Environment(\.tabBarTop) private var tabBarTop
+    @State private var activeStoryForBook: StoryDocument?
 
     var body: some View {
         GeometryReader { proxy in
@@ -22,7 +23,9 @@ struct FamilyNotebookView: View {
                 } else {
                     LazyVStack(spacing: 18) {
                         ForEach(archive.stories) { story in
-                            StoryCard(story: story)
+                            StoryCard(story: story) {
+                                activeStoryForBook = story
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -35,23 +38,65 @@ struct FamilyNotebookView: View {
         .background { CorkboardBackground() }
         .navigationTitle("Family Notebook")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $activeStoryForBook) { story in
+            ChildrenPictureBookModal(story: story)
+                .environmentObject(archive)
+        }
     }
 }
 
 /// One story, styled like a note pinned to the board.
 private struct StoryCard: View {
     let story: StoryDocument
+    let onOpenBook: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(story.title)
-                .font(.heirloomDisplay(22, relativeTo: .title3))
-                .foregroundStyle(HeirloomColor.plum)
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(story.title)
+                        .font(.heirloomDisplay(22, relativeTo: .title3))
+                        .foregroundStyle(HeirloomColor.plum)
 
-            if let subtitle {
-                Text(subtitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(HeirloomColor.tabLabel)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(HeirloomColor.tabLabel)
+                    }
+                }
+
+                Spacer()
+
+                // Small Grok Imagine icon in top right
+                Button {
+                    onOpenBook()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(story.imageUrl != nil ? HeirloomColor.rose : HeirloomColor.polaroidFrame)
+                            .frame(width: 34, height: 34)
+                            .shadow(color: .black.opacity(0.18), radius: 2, x: 1, y: 2)
+
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(story.imageUrl != nil ? .white : HeirloomColor.rose)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Illustrate story with Grok Imagine")
+            }
+
+            if let imageUrl = story.imageUrl, let url = URL(string: imageUrl) {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 120)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
             }
 
             Text(story.narrativeSummary)

@@ -329,6 +329,8 @@ class StoryModel(BaseModel):
     grok_imagine_prompt: Optional[str] = None
     raw_transcript: Optional[str] = None
     image_url: Optional[str] = None
+    children_book_text: Optional[str] = None
+    children_moral: Optional[str] = None
     created_at: Optional[datetime.datetime] = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
@@ -361,6 +363,134 @@ async def list_stories(
     cursor = collection.find(query).sort("created_at", -1)
     docs = await cursor.to_list(length=100)
     return [serialize_doc(doc) for doc in docs]
+
+
+class StoryImagineRequest(BaseModel):
+    custom_prompt: Optional[str] = None
+    style: Optional[str] = "childrens_storybook"  # "childrens_storybook" | "vintage_polaroid"
+
+
+def _call_xai_image_generation(api_key: str, prompt: str) -> Optional[str]:
+    """Calls xAI Grok Imagine image generation endpoint."""
+    import urllib.request
+    import json
+    
+    url = "https://api.x.ai/v1/images/generations"
+    payload = {
+        "model": "grok-imagine-image-2.0",
+        "prompt": prompt,
+        "n": 1,
+        "aspect_ratio": "4:3",
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "HeirLoom/1.0"
+    }
+    
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    try:
+        import ssl
+        context = ssl.create_default_context(cafile=ca) if ca else None
+        with urllib.request.urlopen(req, data=json.dumps(payload).encode("utf-8"), timeout=35, context=context) as resp:
+            res_data = json.loads(resp.read().decode("utf-8"))
+            items = res_data.get("data", [])
+            if items and "url" in items[0]:
+                return items[0]["url"]
+    except Exception as err:
+        print(f"[HeirLoom API] Grok Imagine generation failed: {err}")
+    return None
+
+
+def _call_xai_children_story_adapt(api_key: str, title: str, summary: str, era: Optional[str]) -> tuple[str, str]:
+    """Generates a brief children's picture book adaptation and moral lesson using xAI Grok-3."""
+    import json
+    try:
+        import xai_sdk
+        from xai_sdk.chat import system, user
+        client = xai_sdk.Client(api_key=api_key)
+        chat = client.chat.create(model="grok-3")
+        chat.append(system(
+            "You are a loving children's picture book author helping elders pass down family memories to young children. "
+            "Rewrite this family memory into an engaging, simple, 2-3 sentence children's picture book story spread, "
+            "plus a 1-sentence heartwarming moral or lesson for children. "
+            "Output valid JSON only with keys 'children_book_text' and 'children_moral' without code fences."
+        ))
+        chat.append(user(f"Title: {title}\nEra: {era or 'Once upon a time'}\nMemory: {summary}"))
+        res = chat.sample()
+        content = res.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip("` \n")
+        parsed = json.loads(content)
+        return parsed.get("children_book_text", summary), parsed.get("children_moral", "Family memories connect our hearts across time.")
+    except Exception as err:
+        print(f"[HeirLoom API] Grok Story adaptation note: {err}")
+
+    # Heartfelt fallback adaptation if API is busy
+    fallback_text = f"Once upon a time, {summary} It was a bright adventure filled with love, laughter, and discovery."
+    fallback_moral = "Every family story is a little treasure passed down through the years."
+    return fallback_text, fallback_moral
+
+
+@app.post("/api/stories/{id}/imagine", response_model=StoryModel, tags=["Grok Imagine"])
+@app.post("/stories/{id}/imagine", response_model=StoryModel, tags=["Grok Imagine"])
+async def generate_story_imagine(id: str, req: Optional[StoryImagineRequest] = None):
+    """Generates a Grok Imagine children's picture book illustration and adaptation for a story,
+    persisting the result in MongoDB Atlas.
+    """
+    import asyncio
+    collection = db_config.db["stories"]
+    doc = await collection.find_one(id_query(id))
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Story '{id}' not found")
+
+    title = doc.get("title", "A Family Memory")
+    summary = doc.get("narrative_summary", "")
+    era = doc.get("extracted_era", "")
+    base_prompt = doc.get("grok_imagine_prompt") or summary
+
+    # Build an engineered prompt specifically for children's picture book illustrations
+    style = req.style if req else "childrens_storybook"
+    if req and req.custom_prompt:
+        imagine_prompt = req.custom_prompt
+    elif style == "childrens_storybook":
+        imagine_prompt = (
+            f"Children's picture book watercolor and colored pencil illustration: {base_prompt}. "
+            f"Whimsical, warm storybook art style, gentle golden hour lighting, rich paper texture, "
+            f"heartwarming expressions, timeless family folklore, Beatrix Potter and Maurice Sendak inspiration."
+        )
+    else:
+        imagine_prompt = (
+            f"Warm vintage 1970s Polaroid photograph: {base_prompt}. "
+            f"Soft sun flare, gentle film grain, nostalgic family heirloom, authentic historical warmth."
+        )
+
+    api_key = os.getenv("XAI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="XAI_API_KEY not configured in environment")
+
+    # Generate image and children's storybook text in parallel threads
+    image_url_task = asyncio.to_thread(_call_xai_image_generation, api_key, imagine_prompt)
+    story_adapt_task = asyncio.to_thread(_call_xai_children_story_adapt, api_key, title, summary, era)
+    image_url, (children_text, children_moral) = await asyncio.gather(image_url_task, story_adapt_task)
+
+    update_fields = {
+        "children_book_text": children_text,
+        "children_moral": children_moral,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc),
+    }
+    if image_url:
+        update_fields["image_url"] = image_url
+    if imagine_prompt:
+        update_fields["grok_imagine_prompt"] = imagine_prompt
+
+    await collection.update_one(id_query(id), {"$set": update_fields})
+    updated_doc = await collection.find_one(id_query(id))
+    return serialize_doc(updated_doc)
+
 
 
 # =====================================================================

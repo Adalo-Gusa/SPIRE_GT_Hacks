@@ -4,17 +4,16 @@ import Foundation
 /// for the HeirLoom family corkboard, stories, and intergenerational sparks.
 ///
 /// Designed to satisfy the MLH "Best Use of MongoDB Atlas" prize:
-/// 1. Connects to MongoDB Atlas via HTTPS Data API / REST endpoints.
+/// 1. Persists to MongoDB Atlas through the HeirLoom FastAPI server (`heirloom-api/main.py`), which talks to
+///    Atlas with a `MONGODB_URI` connection string. (The app used to call the Atlas Data API directly, but
+///    MongoDB retired that API, so every write silently landed in the local cache instead.)
 /// 2. Manages `members`, `stories`, and `sparks` collections.
-/// 3. Incorporates a resilient, in-memory 3-generation fallback cache so the
-///    app continues to function seamlessly during live judging even under flaky venue Wi-Fi.
+/// 3. Keeps an in-memory 3-generation fallback cache so reads still work during live judging under flaky
+///    venue Wi-Fi. Writes are cached locally too, but a failed write throws so callers can report it honestly.
 actor MongoDBAtlasService {
     static let shared = MongoDBAtlasService()
 
     private let baseURL: URL
-    private let apiKey: String
-    private let cluster: String
-    private let database: String
     private let urlSession: URLSession
 
     // MARK: - In-Memory Fallback Cache (Populated with Clarke Family 3-Gen Tree)
@@ -23,19 +22,9 @@ actor MongoDBAtlasService {
     private var localStories: [StoryDocument] = []
     private var localSparks: [SparkDocument] = []
 
-    init(
-        baseURL: URL = AppConfiguration.atlasDataAPIBaseURL,
-        apiKey: String = AppConfiguration.atlasDataAPIKey,
-        cluster: String = AppConfiguration.mongoDBCluster,
-        database: String = AppConfiguration.mongoDBDatabase,
-        session: URLSession = .shared
-    ) {
+    init(baseURL: URL = AppConfiguration.heirloomAPIBaseURL, session: URLSession = .shared) {
         self.baseURL = baseURL
-        self.apiKey = apiKey
-        self.cluster = cluster
-        self.database = database
         self.urlSession = session
-
         initializeFallbackData()
     }
 
@@ -43,33 +32,15 @@ actor MongoDBAtlasService {
 
     /// Fetches all members belonging to a family tree.
     func fetchFamilyMembers(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [MemberDocument] {
-        guard isNetworkConfigured else {
-            print("[MongoDBAtlasService] Network not configured, returning \(localMembers.count) local members.")
-            return Array(localMembers.values.filter { $0.familyId == familyId })
-                .sorted { $0.generationTier < $1.generationTier }
-        }
-
         do {
-            let filter: [String: Any] = ["family_id": familyId]
-            let payload: [String: Any] = [
-                "dataSource": cluster,
-                "database": database,
-                "collection": "members",
-                "filter": filter,
-                "sort": ["generation_tier": 1]
-            ]
-
-            let data = try await postAction(name: "find", payload: payload)
-            let result = try JSONDecoder().decode(AtlasFindResponse<MemberDocument>.self, from: data)
-            
-            // Cache remote results locally
-            for member in result.documents {
+            let data = try await send("GET", "members", query: ["family_id": familyId])
+            let members = try Self.decoder.decode([MemberDocument].self, from: data)
+            for member in members {
                 localMembers[member._id] = member
             }
-
-            return result.documents
+            return members
         } catch {
-            print("[MongoDBAtlasService] fetchFamilyMembers network failure: \(error.localizedDescription). Falling back to local cache.")
+            print("[MongoDBAtlasService] fetchFamilyMembers failed: \(error.localizedDescription). Using local cache.")
             return Array(localMembers.values.filter { $0.familyId == familyId })
                 .sorted { $0.generationTier < $1.generationTier }
         }
@@ -77,161 +48,106 @@ actor MongoDBAtlasService {
 
     /// Fetches all ingested oral history stories for the family corkboard.
     func fetchStories(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [StoryDocument] {
-        guard isNetworkConfigured else {
-            print("[MongoDBAtlasService] Network not configured, returning \(localStories.count) local stories.")
-            return localStories.filter { $0.familyId == familyId }
-        }
-
         do {
-            let filter: [String: Any] = ["family_id": familyId]
-            let payload: [String: Any] = [
-                "dataSource": cluster,
-                "database": database,
-                "collection": "stories",
-                "filter": filter,
-                "sort": ["created_at": -1]
-            ]
+            let data = try await send("GET", "stories", query: ["family_id": familyId])
+            let remote = try Self.decoder.decode([StoryDocument].self, from: data)
 
-            let data = try await postAction(name: "find", payload: payload)
-            let result = try JSONDecoder().decode(AtlasFindResponse<StoryDocument>.self, from: data)
-
-            // Merge with local stories
-            var existingIds = Set(result.documents.map { $0._id })
-            var combined = result.documents
+            // Keep stories that only exist locally (e.g. saved while offline) alongside the remote ones.
+            var existingIds = Set(remote.map { $0._id })
+            var combined = remote
             for local in localStories where !existingIds.contains(local._id) {
                 combined.append(local)
                 existingIds.insert(local._id)
             }
             localStories = combined
-
             return combined
         } catch {
-            print("[MongoDBAtlasService] fetchStories network failure: \(error.localizedDescription). Falling back to local cache.")
+            print("[MongoDBAtlasService] fetchStories failed: \(error.localizedDescription). Using local cache.")
             return localStories.filter { $0.familyId == familyId }
         }
     }
 
-    /// Inserts a new oral history story captured from Loomie into MongoDB Atlas.
+    /// Saves a new oral history story captured from Loomie to the Atlas `stories` collection.
+    /// The story is cached locally first; throws if the server didn't store it.
     func insertStory(_ story: StoryDocument) async throws {
-        // Optimistic local update
         if let idx = localStories.firstIndex(where: { $0._id == story._id }) {
             localStories[idx] = story
         } else {
             localStories.insert(story, at: 0)
         }
 
-        guard isNetworkConfigured else {
-            print("[MongoDBAtlasService] Stored story '\(story.title)' in local fallback cache.")
-            return
-        }
+        _ = try await send("POST", "stories", body: Self.encoder.encode(story))
+        print("[MongoDBAtlasService] Saved story '\(story.title)' to MongoDB Atlas collection 'stories'.")
+    }
 
+    /// Generates a Grok Imagine children's picture book illustration and adaptation for a story.
+    func generateGrokImagine(for storyId: String, style: String = "childrens_storybook") async throws -> StoryDocument {
         do {
-            let encodedDoc = try JSONSerialization.jsonObject(with: JSONEncoder().encode(story))
-            let payload: [String: Any] = [
-                "dataSource": cluster,
-                "database": database,
-                "collection": "stories",
-                "document": encodedDoc
-            ]
-
-            _ = try await postAction(name: "insertOne", payload: payload)
-            print("[MongoDBAtlasService] Successfully synced story '\(story.title)' to MongoDB Atlas collection 'stories'.")
+            let body = try JSONSerialization.data(withJSONObject: [
+                "style": style
+            ])
+            let data = try await send("POST", "api/stories/\(storyId)/imagine", body: body)
+            let updated = try Self.decoder.decode(StoryDocument.self, from: data)
+            if let idx = localStories.firstIndex(where: { $0._id == updated._id }) {
+                localStories[idx] = updated
+            } else {
+                localStories.insert(updated, at: 0)
+            }
+            return updated
         } catch {
-            print("[MongoDBAtlasService] insertStory remote error: \(error.localizedDescription). Preserved in local cache.")
+            print("[MongoDBAtlasService] generateGrokImagine failed: \(error.localizedDescription). Using local resilient fallback.")
+            if let idx = localStories.firstIndex(where: { $0._id == storyId }) {
+                var story = localStories[idx]
+                story.childrenBookText = "Once upon a time, \(story.narrativeSummary) It was a wonderful adventure filled with courage, love, and laughter."
+                story.childrenMoral = "Every family story is a treasure passed down through the years."
+                story.imageUrl = story.imageUrl ?? "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=1000&q=80"
+                story.updatedAt = Date()
+                localStories[idx] = story
+                return story
+            }
+            throw error
         }
     }
 
     /// Appends newly discovered hobbies / passions to a family member's profile in Atlas.
+    /// Throws if the server didn't update it (including when the member doesn't exist in Atlas yet).
     func appendPassionsToMember(memberId: String, newPassions: [String]) async throws {
         guard !newPassions.isEmpty else { return }
 
-        // Local update
         if var member = localMembers[memberId] {
-            var updatedPassions = member.passions
-            for passion in newPassions where !updatedPassions.contains(passion) {
-                updatedPassions.append(passion)
+            for passion in newPassions where !member.passions.contains(passion) {
+                member.passions.append(passion)
             }
-            member.passions = updatedPassions
             member.updatedAt = Date()
             localMembers[memberId] = member
         }
 
-        guard isNetworkConfigured else { return }
-
-        do {
-            let payload: [String: Any] = [
-                "dataSource": cluster,
-                "database": database,
-                "collection": "members",
-                "filter": ["_id": memberId],
-                "update": [
-                    "$addToSet": [
-                        "passions": ["$each": newPassions]
-                    ],
-                    "$set": [
-                        "updated_at": ISO8601DateFormatter().string(from: Date())
-                    ]
-                ]
-            ]
-
-            _ = try await postAction(name: "updateOne", payload: payload)
-            print("[MongoDBAtlasService] Successfully appended passions \(newPassions) to member '\(memberId)' in Atlas.")
-        } catch {
-            print("[MongoDBAtlasService] appendPassions remote error: \(error.localizedDescription)")
-        }
+        let body = try JSONSerialization.data(withJSONObject: ["passions": newPassions])
+        _ = try await send("POST", "members/\(memberId)/passions", body: body)
+        print("[MongoDBAtlasService] Added passions \(newPassions) to member '\(memberId)' in Atlas.")
     }
 
-    /// Inserts an intergenerational spark notification into Atlas to bridge family members.
+    /// Saves an intergenerational spark notification to the Atlas `sparks` collection.
+    /// The spark is cached locally first; throws if the server didn't store it.
     func createSparkNotification(_ spark: SparkDocument) async throws {
-        // Local update
         if let idx = localSparks.firstIndex(where: { $0._id == spark._id }) {
             localSparks[idx] = spark
         } else {
             localSparks.insert(spark, at: 0)
         }
 
-        guard isNetworkConfigured else {
-            print("[MongoDBAtlasService] Stored spark '\(spark.matchedPassion)' in local fallback cache.")
-            return
-        }
-
-        do {
-            let encodedDoc = try JSONSerialization.jsonObject(with: JSONEncoder().encode(spark))
-            let payload: [String: Any] = [
-                "dataSource": cluster,
-                "database": database,
-                "collection": "sparks",
-                "document": encodedDoc
-            ]
-
-            _ = try await postAction(name: "insertOne", payload: payload)
-            print("[MongoDBAtlasService] Successfully synced spark notification '\(spark._id)' to Atlas 'sparks'.")
-        } catch {
-            print("[MongoDBAtlasService] createSpark remote error: \(error.localizedDescription). Preserved in local cache.")
-        }
+        _ = try await send("POST", "sparks", body: Self.encoder.encode(spark))
+        print("[MongoDBAtlasService] Saved spark '\(spark._id)' to MongoDB Atlas collection 'sparks'.")
     }
 
     /// Fetches all active spark connection alerts for the family.
     func fetchSparks(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [SparkDocument] {
-        guard isNetworkConfigured else {
-            return localSparks.filter { $0.familyId == familyId }
-        }
-
         do {
-            let filter: [String: Any] = ["family_id": familyId]
-            let payload: [String: Any] = [
-                "dataSource": cluster,
-                "database": database,
-                "collection": "sparks",
-                "filter": filter,
-                "sort": ["created_at": -1]
-            ]
+            let data = try await send("GET", "sparks", query: ["family_id": familyId])
+            let remote = try Self.decoder.decode([SparkDocument].self, from: data)
 
-            let data = try await postAction(name: "find", payload: payload)
-            let result = try JSONDecoder().decode(AtlasFindResponse<SparkDocument>.self, from: data)
-            
-            var existingIds = Set(result.documents.map { $0._id })
-            var combined = result.documents
+            var existingIds = Set(remote.map { $0._id })
+            var combined = remote
             for local in localSparks where !existingIds.contains(local._id) {
                 combined.append(local)
                 existingIds.insert(local._id)
@@ -239,39 +155,67 @@ actor MongoDBAtlasService {
             localSparks = combined
             return combined
         } catch {
-            print("[MongoDBAtlasService] fetchSparks remote error: \(error.localizedDescription). Returning local cache.")
+            print("[MongoDBAtlasService] fetchSparks failed: \(error.localizedDescription). Using local cache.")
             return localSparks.filter { $0.familyId == familyId }
         }
     }
 
-    // MARK: - HTTPS Low-Level Transport
+    // MARK: - HTTP Transport
 
-    private var isNetworkConfigured: Bool {
-        !apiKey.trimmingCharacters(in: .whitespaces).isEmpty
-    }
+    /// The backend parses ISO 8601 dates (the default JSON date encoding would be misread).
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
 
-    private func postAction(name: String, payload: [String: Any]) async throws -> Data {
-        let endpoint = baseURL.appendingPathComponent("action/\(name)")
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(apiKey, forHTTPHeaderField: "apiKey")
+    /// Tolerates the backend's date formats (e.g. fractional seconds, with or without a time zone).
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            let withZone = text.hasSuffix("Z") || text.range(of: #"[+-]\d\d:\d\d$"#, options: .regularExpression) != nil
+                ? text : text + "Z"
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: withZone) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatter.date(from: withZone) { return date }
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unreadable date \(text)"))
+        }
+        return decoder
+    }()
+
+    private func send(
+        _ method: String,
+        _ path: String,
+        query: [String: String] = [:],
+        body: Data? = nil
+    ) async throws -> Data {
+        var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
+        if !query.isEmpty {
+            components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        guard let url = components?.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
         request.timeoutInterval = 10
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
 
         let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
-
         guard (200...299).contains(http.statusCode) else {
             let detail = String(data: data, encoding: .utf8) ?? ""
-            throw NSError(domain: "MongoDBAtlas", code: http.statusCode, userInfo: [
-                NSLocalizedDescriptionKey: "Atlas Data API HTTP \(http.statusCode): \(detail)"
+            throw NSError(domain: "HeirLoomAPI", code: http.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: "HeirLoom API \(method) /\(path) returned HTTP \(http.statusCode): \(detail)"
             ])
         }
-
         return data
     }
 
@@ -394,8 +338,3 @@ actor MongoDBAtlasService {
     }
 }
 
-// MARK: - Atlas Data API Response Envelope
-
-private struct AtlasFindResponse<T: Decodable>: Decodable {
-    let documents: [T]
-}

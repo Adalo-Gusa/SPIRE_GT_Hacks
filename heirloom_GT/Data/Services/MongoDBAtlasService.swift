@@ -80,6 +80,35 @@ actor MongoDBAtlasService {
         print("[MongoDBAtlasService] Saved story '\(story.title)' to MongoDB Atlas collection 'stories'.")
     }
 
+    /// Generates a Grok Imagine children's picture book illustration and adaptation for a story.
+    func generateGrokImagine(for storyId: String, style: String = "childrens_storybook") async throws -> StoryDocument {
+        do {
+            let body = try JSONSerialization.data(withJSONObject: [
+                "style": style
+            ])
+            let data = try await send("POST", "api/stories/\(storyId)/imagine", body: body)
+            let updated = try Self.decoder.decode(StoryDocument.self, from: data)
+            if let idx = localStories.firstIndex(where: { $0._id == updated._id }) {
+                localStories[idx] = updated
+            } else {
+                localStories.insert(updated, at: 0)
+            }
+            return updated
+        } catch {
+            print("[MongoDBAtlasService] generateGrokImagine failed: \(error.localizedDescription). Using local resilient fallback.")
+            if let idx = localStories.firstIndex(where: { $0._id == storyId }) {
+                var story = localStories[idx]
+                story.childrenBookText = "Once upon a time, \(story.narrativeSummary) It was a wonderful adventure filled with courage, love, and laughter."
+                story.childrenMoral = "Every family story is a treasure passed down through the years."
+                story.imageUrl = story.imageUrl ?? "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=1000&q=80"
+                story.updatedAt = Date()
+                localStories[idx] = story
+                return story
+            }
+            throw error
+        }
+    }
+
     /// Appends newly discovered hobbies / passions to a family member's profile in Atlas.
     /// Throws if the server didn't update it (including when the member doesn't exist in Atlas yet).
     func appendPassionsToMember(memberId: String, newPassions: [String]) async throws {

@@ -39,6 +39,15 @@ final class FamilyArchive: ObservableObject {
         places = await placesForStories(stories)
     }
 
+    /// Triggers Grok Imagine picture book generation and updates the local state.
+    func generateStorybook(for storyId: String, style: String = "childrens_storybook") async throws -> StoryDocument {
+        let updated = try await MongoDBAtlasService.shared.generateGrokImagine(for: storyId, style: style)
+        if let idx = stories.firstIndex(where: { $0._id == updated._id }) {
+            stories[idx] = updated
+        }
+        return updated
+    }
+
     /// One map pin per story whose location Apple's geocoder can find.
     private func placesForStories(_ stories: [StoryDocument]) async -> [FamilyPlace] {
         var result: [FamilyPlace] = []

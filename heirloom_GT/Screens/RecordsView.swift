@@ -90,6 +90,7 @@ struct RecordsView: View {
                 .navigationDestination(for: RecordBook.self) { book in
                     switch book {
                     case .notebook: FamilyNotebookView()
+                    case .storybook: CreateStorybookView()
                     default: RecordPageView(book: book)
                     }
                 }

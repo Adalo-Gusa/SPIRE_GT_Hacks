@@ -12,7 +12,14 @@ xcuserdata/
 
 # Local API keys (never commit)
 .env
+.env*
+*.env*
 Secrets.env
+heirloom_GT/heirloom-api/
+
+# OS artifacts
+.DS_Store
+*/.DS_Store
 
 # Editor & Python artifacts
 .cursor/
@@ -21,3 +28,6 @@ __pycache__/
 
 # Python virtual environments
 .venv/
+venv/
+*/venv/
+

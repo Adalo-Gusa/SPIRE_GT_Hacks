@@ -219,7 +219,7 @@ class ArchiveManagerAgent:
         self,
         db: Optional[pymongo.database.Database] = None,
         xai_api_key: Optional[str] = None,
-        model: str = "grok-4.3",
+        model: str = "grok-3",
     ):
         self.api_key = xai_api_key or ENV_VARS.get("XAI_API_KEY") or os.environ.get("XAI_API_KEY")
         self.model = model

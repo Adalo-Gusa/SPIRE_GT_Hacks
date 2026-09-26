@@ -16,6 +16,8 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
     var grokImaginePrompt: String?
     var rawTranscript: String?
     var imageUrl: String?
+    var childrenBookText: String?
+    var childrenMoral: String?
     var createdAt: Date?
     var updatedAt: Date?
 
@@ -41,6 +43,10 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         case altRawTranscript = "rawTranscript"
         case imageUrl = "image_url"
         case altImageUrl = "imageUrl"
+        case childrenBookText = "children_book_text"
+        case altChildrenBookText = "childrenBookText"
+        case childrenMoral = "children_moral"
+        case altChildrenMoral = "childrenMoral"
         case createdAt = "created_at"
         case altCreatedAt = "createdAt"
         case updatedAt = "updated_at"
@@ -60,6 +66,8 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         grokImaginePrompt: String? = nil,
         rawTranscript: String? = nil,
         imageUrl: String? = nil,
+        childrenBookText: String? = nil,
+        childrenMoral: String? = nil,
         createdAt: Date? = Date(),
         updatedAt: Date? = Date()
     ) {
@@ -75,6 +83,8 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         self.grokImaginePrompt = grokImaginePrompt
         self.rawTranscript = rawTranscript
         self.imageUrl = imageUrl
+        self.childrenBookText = childrenBookText
+        self.childrenMoral = childrenMoral
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -93,6 +103,8 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         self.grokImaginePrompt = artifact.grokImaginePrompt
         self.rawTranscript = artifact.rawTranscript
         self.imageUrl = nil
+        self.childrenBookText = nil
+        self.childrenMoral = nil
         self.createdAt = artifact.createdAt
         self.updatedAt = Date()
     }
@@ -152,6 +164,12 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         self.imageUrl = (try? container.decode(String.self, forKey: .imageUrl))
             ?? (try? container.decode(String.self, forKey: .altImageUrl))
 
+        self.childrenBookText = (try? container.decode(String.self, forKey: .childrenBookText))
+            ?? (try? container.decode(String.self, forKey: .altChildrenBookText))
+
+        self.childrenMoral = (try? container.decode(String.self, forKey: .childrenMoral))
+            ?? (try? container.decode(String.self, forKey: .altChildrenMoral))
+
         self.createdAt = (try? container.decode(Date.self, forKey: .createdAt))
             ?? (try? container.decode(Date.self, forKey: .altCreatedAt))
 
@@ -173,6 +191,8 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         try container.encodeIfPresent(grokImaginePrompt, forKey: .grokImaginePrompt)
         try container.encodeIfPresent(rawTranscript, forKey: .rawTranscript)
         try container.encodeIfPresent(imageUrl, forKey: .imageUrl)
+        try container.encodeIfPresent(childrenBookText, forKey: .childrenBookText)
+        try container.encodeIfPresent(childrenMoral, forKey: .childrenMoral)
         try container.encodeIfPresent(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
