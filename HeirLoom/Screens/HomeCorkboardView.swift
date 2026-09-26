@@ -17,9 +17,6 @@ struct HomeCorkboardView: View {
     @State private var fitRequest = 0
     @State private var panStart: (pan: CGSize, translation: CGSize)?
     @State private var selectedMemberForUpdates: MemberDocument? = nil
-    /// Set when the member sheet asks for the feed; the feed opens once that sheet has finished dismissing,
-    /// since presenting it while the member sheet is still on screen fails and leaves the app unresponsive.
-    @State private var opensFeedAfterDismiss = false
 
     private var camera: BoardCamera {
         get { cameraController.camera }
@@ -35,16 +32,12 @@ struct HomeCorkboardView: View {
             board = CorkboardModel.familyTree(from: archive.members)
             fitRequest += 1
         }
-        .sheet(item: $selectedMemberForUpdates, onDismiss: {
-            guard opensFeedAfterDismiss else { return }
-            opensFeedAfterDismiss = false
-            onOpenFeed()
-        }) { member in
+        .sheet(item: $selectedMemberForUpdates) { member in
             MemberUpdatesSheet(
                 member: member,
                 onNavigateToFeed: {
-                    opensFeedAfterDismiss = true
                     selectedMemberForUpdates = nil
+                    onOpenFeed()
                 }
             )
             .presentationDetents([.medium, .large])
@@ -57,30 +50,59 @@ struct HomeCorkboardView: View {
             let viewport = proxy.size
             let baseScale = viewport.width / CorkboardModel.designWidth
             let scale = baseScale * camera.zoom
+            let toScreen = { (point: CGPoint) in
+                CGPoint(x: point.x * scale + camera.pan.width, y: point.y * scale + camera.pan.height)
+            }
 
             ZStack {
-                CorkboardBackground(
-                    spacing: 72 * scale,
-                    origin: CGPoint(x: 4 * scale + camera.pan.width, y: 34 * scale + camera.pan.height))
+                CorkboardBackground(spacing: 72 * scale, origin: toScreen(CGPoint(x: 4, y: 34)))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
                         withAnimation(.snappy) { camera = fitAllCamera(viewport: viewport, baseScale: baseScale) }
                     }
 
-                // The photos, strings and pins are laid out once at the base scale and zoomed and panned as one
-                // layer, so moving the camera doesn't lay out every item on the board again each frame.
-                BoardLayer(board: board, baseScale: baseScale) { photo in
-                    withAnimation(.snappy) {
-                        camera = focusCamera(on: photo, viewport: viewport, baseScale: baseScale)
-                    }
-                    if let memId = photo.memberId, let member = archive.members.first(where: { $0._id == memId }) {
-                        selectedMemberForUpdates = member
+                ForEach(board.photos) { photo in
+                    let unread = photo.memberId.map { archive.unreadCount(for: $0) } ?? 0
+                    PinnedPolaroid(
+                        photo: photo,
+                        center: toScreen(photo.center),
+                        scale: scale,
+                        unreadCount: unread,
+                        onTap: {
+                            withAnimation(.snappy) {
+                                camera = focusCamera(on: photo, viewport: viewport, baseScale: baseScale)
+                            }
+                            if let memId = photo.memberId, let member = archive.members.first(where: { $0._id == memId }) {
+                                selectedMemberForUpdates = member
+                            }
+                        },
+                        onDoubleTap: {
+                            withAnimation(.snappy) {
+                                camera = focusCamera(on: photo, viewport: viewport, baseScale: baseScale)
+                            }
+                        }
+                    )
+                }
+
+                // Strings and pins stay above the photos so connections are always visible.
+                ForEach(board.connections) { connection in
+                    if let ends = board.endpoints(of: connection) {
+                        BoardString(
+                            from: toScreen(ends.from),
+                            to: toScreen(ends.to),
+                            color: connection.color,
+                            curve: connection.curve,
+                            lineWidth: 5 * scale)
                     }
                 }
-                .equatable()
-                .frame(width: viewport.width, height: viewport.height)
-                .scaleEffect(camera.zoom, anchor: .topLeading)
-                .offset(camera.pan)
+
+                ForEach(board.pins) { pin in
+                    if let location = board.location(of: pin) {
+                        Pushpin(color: pin.color)
+                            .pinned(at: toScreen(location), tilt: board.tilt(of: pin), scale: scale)
+                            .allowsHitTesting(false)
+                    }
+                }
 
                 FeedButton(action: onOpenFeed)
                     .padding(.top, topInset)
@@ -156,58 +178,6 @@ struct HomeCorkboardView: View {
         return CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height)
             .applying(CGAffineTransform(rotationAngle: photo.rotation.radians))
             .offsetBy(dx: photo.center.x, dy: photo.center.y)
-    }
-}
-
-/// Everything pinned to the board, positioned in screen points at `baseScale` (before the camera's zoom and pan).
-/// Equatable so the camera moving doesn't rebuild it; it still updates when the board or unread counts change.
-private struct BoardLayer: View, Equatable {
-    let board: CorkboardModel
-    /// Screen points per board unit at zoom 1.
-    let baseScale: CGFloat
-    var onTapPhoto: (BoardPhoto) -> Void
-
-    @EnvironmentObject private var archive: FamilyArchive
-
-    static func == (lhs: BoardLayer, rhs: BoardLayer) -> Bool {
-        lhs.board === rhs.board && lhs.baseScale == rhs.baseScale
-    }
-
-    var body: some View {
-        let toLayer = { (point: CGPoint) in CGPoint(x: point.x * baseScale, y: point.y * baseScale) }
-
-        ZStack {
-            ForEach(board.photos) { photo in
-                PinnedPolaroid(
-                    photo: photo,
-                    center: toLayer(photo.center),
-                    scale: baseScale,
-                    unreadCount: photo.memberId.map { archive.unreadCount(for: $0) } ?? 0,
-                    onTap: { onTapPhoto(photo) },
-                    onDoubleTap: {}
-                )
-            }
-
-            // Strings and pins stay above the photos so connections are always visible.
-            ForEach(board.connections) { connection in
-                if let ends = board.endpoints(of: connection) {
-                    BoardString(
-                        from: toLayer(ends.from),
-                        to: toLayer(ends.to),
-                        color: connection.color,
-                        curve: connection.curve,
-                        lineWidth: 5 * baseScale)
-                }
-            }
-
-            ForEach(board.pins) { pin in
-                if let location = board.location(of: pin) {
-                    Pushpin(color: pin.color)
-                        .pinned(at: toLayer(location), tilt: board.tilt(of: pin), scale: baseScale)
-                        .allowsHitTesting(false)
-                }
-            }
-        }
     }
 }
 

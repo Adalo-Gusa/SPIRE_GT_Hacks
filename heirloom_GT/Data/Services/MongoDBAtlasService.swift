@@ -21,6 +21,7 @@ actor MongoDBAtlasService {
     private var localMembers: [String: MemberDocument] = [:]
     private var localStories: [StoryDocument] = []
     private var localSparks: [SparkDocument] = []
+    private var localFeedPosts: [FeedPostDocument] = []
 
     init(baseURL: URL = AppConfiguration.heirloomAPIBaseURL, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -129,6 +130,45 @@ actor MongoDBAtlasService {
             print("[MongoDBAtlasService] fetchSparks failed: \(error.localizedDescription). Using local cache.")
             return localSparks.filter { $0.familyId == familyId }
         }
+    }
+
+    /// Fetches all social moments & Instagram updates for the Family Feed.
+    func fetchFeedPosts(familyId: String = AppConfiguration.mongoDBFamilyId, authorId: String? = nil) async throws -> [FeedPostDocument] {
+        var queryParams: [String: String] = ["family_id": familyId]
+        if let authorId = authorId {
+            queryParams["author_id"] = authorId
+        }
+
+        do {
+            let data = try await send("GET", "posts", query: queryParams)
+            let remote = try Self.decoder.decode([FeedPostDocument].self, from: data)
+
+            var existingIds = Set(remote.map { $0._id })
+            var combined = remote
+            for local in localFeedPosts where !existingIds.contains(local._id) {
+                combined.append(local)
+                existingIds.insert(local._id)
+            }
+            localFeedPosts = combined
+            return combined.sorted { $0.createdAt > $1.createdAt }
+        } catch {
+            print("[MongoDBAtlasService] fetchFeedPosts failed: \(error.localizedDescription). Using local cache.")
+            return localFeedPosts
+                .filter { $0.familyId == familyId && (authorId == nil || $0.authorId == authorId) }
+                .sorted { $0.createdAt > $1.createdAt }
+        }
+    }
+
+    /// Saves a newly shared post (from Instagram or in-app composer) to MongoDB Atlas.
+    func insertFeedPost(_ post: FeedPostDocument) async throws {
+        if let idx = localFeedPosts.firstIndex(where: { $0._id == post._id }) {
+            localFeedPosts[idx] = post
+        } else {
+            localFeedPosts.insert(post, at: 0)
+        }
+
+        _ = try await send("POST", "posts", body: Self.encoder.encode(post))
+        print("[MongoDBAtlasService] Saved feed post '\(post._id)' to MongoDB Atlas collection 'posts'.")
     }
 
     // MARK: - HTTP Transport
@@ -306,6 +346,41 @@ actor MongoDBAtlasService {
             status: "active"
         )
         localSparks = [electronicsSpark]
+
+        // Seed Family Feed Posts (Instagram + In-App)
+        let alexInstagramPost = FeedPostDocument(
+            id: "post_alex_synth_001",
+            familyId: famId,
+            authorId: "member_alex",
+            authorName: "Alex Clarke",
+            authorAvatarUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6",
+            content: "Late night lab session at Georgia Tech! Soldered the final stage of this ladder filter module for the modular synth rack. Oscilloscope traces are looking super clean 🎛️⚡️",
+            imageUrl: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04",
+            postUrl: "https://instagram.com/p/DA_synth_lab",
+            source: "instagram",
+            passions: ["Electronics", "Synthesizer Music", "Guitar Pedals"],
+            location: "Atlanta, GA",
+            createdAt: Date().addingTimeInterval(-3600 * 4),
+            isUnread: true
+        )
+
+        let sarahInAppPost = FeedPostDocument(
+            id: "post_sarah_pottery_002",
+            familyId: famId,
+            authorId: "member_sarah",
+            authorName: "Sarah Clarke",
+            authorAvatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
+            content: "Unloading the kiln this morning! This batch of stoneware mugs and wood-fired vases turned out beautifully. Saving the warm earthy one for Sunday breakfast with Mom and Dad ☕️🏺",
+            imageUrl: "https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261",
+            postUrl: nil,
+            source: "in_app",
+            passions: ["Pottery", "Crafts"],
+            location: "Asheville, NC",
+            createdAt: Date().addingTimeInterval(-3600 * 26),
+            isUnread: false
+        )
+
+        localFeedPosts = [alexInstagramPost, sarahInAppPost]
     }
 }
 
