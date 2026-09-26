@@ -12,7 +12,7 @@ public final class LoomOrchestrator: ObservableObject {
     private init() {}
 
     /// Checks the App Group queue for posts shared from Instagram and imports them into Family Feed.
-    public func processPendingSharedPosts(archive: FamilyArchive) async {
+    func processPendingSharedPosts(archive: FamilyArchive) async {
         guard !isProcessing else { return }
         isProcessing = true
         defer { isProcessing = false }

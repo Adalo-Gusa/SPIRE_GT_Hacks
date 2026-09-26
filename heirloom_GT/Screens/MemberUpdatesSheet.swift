@@ -2,15 +2,15 @@ import SwiftUI
 
 /// Presented when tapping a family member's photo on the Home Corkboard tree.
 /// Displays their profile details and recent updates (Instagram posts, in-app moments, oral stories).
-public struct MemberUpdatesSheet: View {
-    public let member: MemberDocument
-    public var onNavigateToFeed: () -> Void = {}
-    public var onNavigateToStory: ((StoryDocument) -> Void)? = nil
+struct MemberUpdatesSheet: View {
+    let member: MemberDocument
+    var onNavigateToFeed: () -> Void = {}
+    var onNavigateToStory: ((StoryDocument) -> Void)? = nil
 
     @EnvironmentObject private var archive: FamilyArchive
     @Environment(\.dismiss) private var dismiss
 
-    public init(
+    init(
         member: MemberDocument,
         onNavigateToFeed: @escaping () -> Void = {},
         onNavigateToStory: ((StoryDocument) -> Void)? = nil
@@ -20,7 +20,7 @@ public struct MemberUpdatesSheet: View {
         self.onNavigateToStory = onNavigateToStory
     }
 
-    public var body: some View {
+    var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
@@ -144,11 +144,9 @@ public struct MemberUpdatesSheet: View {
                             .background(generationBadgeColor.opacity(0.18), in: Capsule())
                             .foregroundStyle(generationBadgeColor)
 
-                        if let birth = member.birthYear {
-                            Text("b. \(String(birth))")
-                                .font(.caption)
-                                .foregroundStyle(HeirloomColor.tabLabel)
-                        }
+                        Text("b. \(String(member.birthYear))")
+                            .font(.caption)
+                            .foregroundStyle(HeirloomColor.tabLabel)
                     }
 
                     if let bio = member.bio, !bio.isEmpty {

@@ -131,16 +131,16 @@ final class FamilyArchive: ObservableObject {
 
 // MARK: - Member Update Item
 
-public enum MemberUpdateType: Equatable {
+enum MemberUpdateType: Equatable {
     case post(FeedPostDocument)
     case story(StoryDocument)
 }
 
-public struct MemberUpdateItem: Identifiable, Equatable {
-    public let id: String
-    public let title: String
-    public let subtitle: String
-    public let date: Date
-    public let type: MemberUpdateType
-    public var isUnread: Bool
+struct MemberUpdateItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let date: Date
+    let type: MemberUpdateType
+    var isUnread: Bool
 }
