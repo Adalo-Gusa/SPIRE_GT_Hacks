@@ -86,7 +86,8 @@ SEED_MEMBERS = [
         "parents": [],
         "children": ["member_marcus"],
         "passions": ["Ham Radio", "Woodworking", "Civil Aviation", "1960s Cars"],
-        "avatar_url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
+        "avatar_url": None,  # stock photo cleared; the app draws a placeholder from gender
+        "gender": "male",
         "bio": "Retired aerospace engineer, lifelong ham radio operator (callsign K4JOC), and vintage car tinkerer.",
         "created_at": datetime.datetime(2026, 1, 1, 12, 0, 0),
         "updated_at": datetime.datetime.now(datetime.timezone.utc),
@@ -101,7 +102,8 @@ SEED_MEMBERS = [
         "parents": [],
         "children": ["member_marcus"],
         "passions": ["Baking", "Watercolor Painting", "Gardening"],
-        "avatar_url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
+        "avatar_url": None,  # stock photo cleared; the app draws a placeholder from gender
+        "gender": "female",
         "bio": "Master gardener, botanical watercolor artist, and family holiday pastry anchor.",
         "created_at": datetime.datetime(2026, 1, 1, 12, 0, 0),
         "updated_at": datetime.datetime.now(datetime.timezone.utc),
@@ -117,7 +119,8 @@ SEED_MEMBERS = [
         "parents": ["member_grandpa_joe", "member_grandma_eleanor"],
         "children": ["member_alex"],
         "passions": ["Cycling", "Photography", "Acoustic Guitar"],
-        "avatar_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d",
+        "avatar_url": None,  # stock photo cleared; the app draws a placeholder from gender
+        "gender": "male",
         "bio": "Landscape photographer, gravel cyclist, and acoustic folk guitarist.",
         "created_at": datetime.datetime(2026, 1, 2, 12, 0, 0),
         "updated_at": datetime.datetime.now(datetime.timezone.utc),
@@ -132,7 +135,8 @@ SEED_MEMBERS = [
         "parents": [],
         "children": ["member_alex"],
         "passions": ["Pottery", "Trail Running"],
-        "avatar_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
+        "avatar_url": None,  # stock photo cleared; the app draws a placeholder from gender
+        "gender": "female",
         "bio": "Studio ceramic artist and ultrarunner exploring mountain passes.",
         "created_at": datetime.datetime(2026, 1, 2, 12, 0, 0),
         "updated_at": datetime.datetime.now(datetime.timezone.utc),
@@ -148,7 +152,8 @@ SEED_MEMBERS = [
         "parents": ["member_marcus", "member_sarah"],
         "children": [],
         "passions": ["Electronics", "Synthesizer Music", "Guitar Pedals", "Computer Engineering"],
-        "avatar_url": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6",
+        "avatar_url": None,  # stock photo cleared; the app draws a placeholder from gender
+        "gender": None,
         "bio": "Georgia Tech CE sophomore building analog synthesizer filters, fuzz pedals, and embedded audio DSP.",
         "created_at": datetime.datetime(2026, 1, 3, 12, 0, 0),
         "updated_at": datetime.datetime.now(datetime.timezone.utc),

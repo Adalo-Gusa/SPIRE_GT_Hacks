@@ -94,6 +94,10 @@ class StoryAnalysis(BaseModel):
         None,
         description="A concise 1-2 sentence biographical summary of the teller based on their story."
     )
+    teller_gender: Optional[str] = Field(
+        None,
+        description="The teller's gender if the story makes it clear (name, honorific like 'Grandpa' or 'Aunt', or pronouns): 'female' or 'male'. If unclear, null."
+    )
     teller_estimated_birth_year: Optional[int] = Field(
         None,
         description="Estimated 4-digit birth year of the teller based on the era of their story (e.g., in 1968 they were ~20 -> born ~1948)."
@@ -193,21 +197,6 @@ def sanitize_mongo_uri(raw_uri: str) -> str:
                 return f"{prefix}://{username}:{encoded_password}@{hostinfo}"
     return uri
 
-
-AVATAR_POOL = {
-    1: [
-        "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
-        "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d",
-    ],
-    2: [
-        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d",
-        "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
-    ],
-    3: [
-        "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6",
-        "https://images.unsplash.com/photo-1494790108377-be9c29b29330",
-    ],
-}
 
 
 # --- Core Archive Manager Agent ---
@@ -403,8 +392,6 @@ class ArchiveManagerAgent:
                 suffix += 1
 
             tier = analysis.teller_generation_tier or 1
-            avatars = AVATAR_POOL.get(tier, AVATAR_POOL[1])
-            avatar_url = avatars[len(candidate_name) % len(avatars)]
 
             birth_year = analysis.teller_estimated_birth_year
             if not birth_year:
@@ -423,7 +410,7 @@ class ArchiveManagerAgent:
                 "parents": [],
                 "children": [],
                 "spouse_id": None,
-                "avatar_url": avatar_url,
+                "gender": analysis.teller_gender,
                 "created_at": now,
                 "updated_at": now,
             }

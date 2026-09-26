@@ -246,7 +246,7 @@ actor MongoDBAtlasService {
             parents: [],
             children: ["member_marcus"],
             passions: ["Ham Radio", "Woodworking", "Civil Aviation", "1960s Cars"],
-            avatarUrl: "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
+            gender: "male",
             bio: "Retired civil aerospace engineer, lifelong ham radio enthusiast (K4JOC), and vintage car tinkerer."
         )
 
@@ -260,7 +260,7 @@ actor MongoDBAtlasService {
             parents: [],
             children: ["member_marcus"],
             passions: ["Baking", "Watercolor Painting", "Gardening"],
-            avatarUrl: "https://images.unsplash.com/photo-1544005313-94ddf0286df2",
+            gender: "female",
             bio: "Botanical watercolor artist and family holiday pastry anchor."
         )
 
@@ -275,7 +275,7 @@ actor MongoDBAtlasService {
             parents: ["member_grandpa_joe", "member_grandma_eleanor"],
             children: ["member_alex"],
             passions: ["Cycling", "Photography", "Acoustic Guitar"],
-            avatarUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d",
+            gender: "male",
             bio: "Landscape photographer, gravel cyclist, and acoustic folk guitarist."
         )
 
@@ -289,7 +289,7 @@ actor MongoDBAtlasService {
             parents: [],
             children: ["member_alex"],
             passions: ["Pottery", "Trail Running"],
-            avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb",
+            gender: "female",
             bio: "Studio ceramic artist and ultrarunner exploring mountain passes."
         )
 
@@ -304,7 +304,6 @@ actor MongoDBAtlasService {
             parents: ["member_marcus", "member_sarah"],
             children: [],
             passions: ["Electronics", "Synthesizer Music", "Guitar Pedals", "Computer Engineering"],
-            avatarUrl: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6",
             bio: "Georgia Tech CE sophomore building analog synthesizer filters, fuzz pedals, and audio DSP."
         )
 

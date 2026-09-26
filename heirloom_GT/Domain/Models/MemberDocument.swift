@@ -14,6 +14,8 @@ struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
     var children: [String]
     var passions: [String]
     var avatarUrl: String?
+    /// "female" or "male"; picks the girl or guy placeholder drawing. Members without one get the guy.
+    var gender: String?
     var bio: String?
     var createdAt: Date?
     var updatedAt: Date?
@@ -35,6 +37,7 @@ struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
         case passions
         case avatarUrl = "avatar_url"
         case altAvatarUrl = "avatarUrl"
+        case gender
         case bio
         case createdAt = "created_at"
         case altCreatedAt = "createdAt"
@@ -53,6 +56,7 @@ struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
         children: [String] = [],
         passions: [String] = [],
         avatarUrl: String? = nil,
+        gender: String? = nil,
         bio: String? = nil,
         createdAt: Date? = Date(),
         updatedAt: Date? = Date()
@@ -67,6 +71,7 @@ struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
         self.children = children
         self.passions = passions
         self.avatarUrl = avatarUrl
+        self.gender = gender
         self.bio = bio
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -102,6 +107,7 @@ struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
 
         self.avatarUrl = (try? container.decode(String.self, forKey: .avatarUrl))
             ?? (try? container.decode(String.self, forKey: .altAvatarUrl))
+        self.gender = try? container.decode(String.self, forKey: .gender)
 
         self.bio = try? container.decode(String.self, forKey: .bio)
         self.createdAt = (try? container.decode(Date.self, forKey: .createdAt))
@@ -122,8 +128,15 @@ struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
         try container.encode(children, forKey: .children)
         try container.encode(passions, forKey: .passions)
         try container.encodeIfPresent(avatarUrl, forKey: .avatarUrl)
+        try container.encodeIfPresent(gender, forKey: .gender)
         try container.encodeIfPresent(bio, forKey: .bio)
         try container.encodeIfPresent(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
+
+    /// The drawn girl or guy shown in place of a photo (the stored avatar URLs are stock photos, not family).
+    var placeholderImageName: String {
+        gender?.lowercased() == "female" ? "PlaceholderGirl" : "PlaceholderGuy"
+    }
+
 }
