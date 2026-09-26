@@ -11,17 +11,17 @@ import Combine
 
 /// User profile representing a family member in HeirLoom, compatible with both
 /// the FastAPI middleware and direct MongoDB Atlas documents.
-public struct UserProfile: Codable, Identifiable, Equatable {
-    public var id: String { _id ?? UUID().uuidString }
-    public var _id: String?
-    public var name: String?
-    public var title: String?
-    public var description: String?
-    public var age: Int?
-    public var interests: [String]?
-    public var tags: [String]?
-    public var generationTier: Int?
-    public var bio: String?
+struct UserProfile: Codable, Identifiable, Equatable {
+    var id: String { _id ?? UUID().uuidString }
+    var _id: String?
+    var name: String?
+    var title: String?
+    var description: String?
+    var age: Int?
+    var interests: [String]?
+    var tags: [String]?
+    var generationTier: Int?
+    var bio: String?
 
     enum CodingKeys: String, CodingKey {
         case _id
@@ -37,7 +37,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
         case bio
     }
 
-    public init(
+    init(
         id: String? = nil,
         name: String? = nil,
         title: String? = nil,
@@ -59,7 +59,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
         self.bio = bio
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self._id = (try? container.decode(String.self, forKey: ._id))
             ?? (try? container.decode(String.self, forKey: .id))
@@ -81,7 +81,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
         }
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(_id, forKey: ._id)
         try container.encodeIfPresent(name, forKey: .name)
@@ -95,7 +95,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
     }
 
     /// Converts to corkboard tree MemberDocument
-    public func toMemberDocument(familyId: String = "fam_clarke_001") -> MemberDocument {
+    func toMemberDocument(familyId: String = "fam_clarke_001") -> MemberDocument {
         let birthYear = age.map { Calendar.current.component(.year, from: Date()) - $0 } ?? 1970
         return MemberDocument(
             id: _id ?? UUID().uuidString,
@@ -111,16 +111,16 @@ public struct UserProfile: Codable, Identifiable, Equatable {
 
 /// Observable state manager for HeirLoom MongoDB backend integration.
 @MainActor
-public final class MongoDBManager: ObservableObject {
-    @Published public var users: [UserProfile] = []
-    @Published public var isLoading: Bool = false
-    @Published public var errorMessage: String? = nil
+final class MongoDBManager: ObservableObject {
+    @Published var users: [UserProfile] = []
+    @Published var isLoading: Bool = false
+    @Published var errorMessage: String? = nil
 
     /// Server URL (FastAPI middleware host).
     /// Default to localhost:8000, configurable via AppConfiguration.
-    public var baseURL: String
+    var baseURL: String
 
-    public init(baseURL: String = "http://127.0.0.1:8000") {
+    init(baseURL: String = "http://127.0.0.1:8000") {
         self.baseURL = baseURL
         loadFallbackUsers()
     }
@@ -128,7 +128,7 @@ public final class MongoDBManager: ObservableObject {
     // MARK: - Modern Async / Await API
 
     /// Fetches all users/members from MongoDB middleware with offline fallback.
-    public func fetchUsersAsync() async {
+    func fetchUsersAsync() async {
         isLoading = true
         errorMessage = nil
 
@@ -166,7 +166,7 @@ public final class MongoDBManager: ObservableObject {
 
     /// Creates and persists a new family member/user in MongoDB.
     @discardableResult
-    public func addUserAsync(name: String, age: Int, interests: [String]) async -> Bool {
+    func addUserAsync(name: String, age: Int, interests: [String]) async -> Bool {
         isLoading = true
         errorMessage = nil
 
@@ -225,7 +225,7 @@ public final class MongoDBManager: ObservableObject {
 
     /// Updates interests/passions for an existing user.
     @discardableResult
-    public func updateUserInterestsAsync(id: String, newInterests: [String]) async -> Bool {
+    func updateUserInterestsAsync(id: String, newInterests: [String]) async -> Bool {
         // Optimistic local update
         if let idx = users.firstIndex(where: { $0.id == id || $0._id == id }) {
             var updated = users[idx]
@@ -267,7 +267,7 @@ public final class MongoDBManager: ObservableObject {
 
     /// Deletes a user by ID.
     @discardableResult
-    public func deleteUserAsync(id: String) async -> Bool {
+    func deleteUserAsync(id: String) async -> Bool {
         users.removeAll { $0.id == id || $0._id == id }
 
         let endpoints = ["\(baseURL)/members/\(id)", "\(baseURL)/items/\(id)"]
@@ -296,25 +296,25 @@ public final class MongoDBManager: ObservableObject {
     // MARK: - Backward-Compatible Synchronous / Closure Signatures
     // Preserves 100% compatibility with Adalo Gusa's existing SwiftUI buttons
 
-    public func fetchUsers() {
+    func fetchUsers() {
         Task {
             await fetchUsersAsync()
         }
     }
 
-    public func addUser(name: String, age: Int, interests: [String]) {
+    func addUser(name: String, age: Int, interests: [String]) {
         Task {
             await addUserAsync(name: name, age: age, interests: interests)
         }
     }
 
-    public func updateUserInterests(id: String, newInterests: [String]) {
+    func updateUserInterests(id: String, newInterests: [String]) {
         Task {
             await updateUserInterestsAsync(id: id, newInterests: newInterests)
         }
     }
 
-    public func deleteUser(id: String) {
+    func deleteUser(id: String) {
         Task {
             await deleteUserAsync(id: id)
         }

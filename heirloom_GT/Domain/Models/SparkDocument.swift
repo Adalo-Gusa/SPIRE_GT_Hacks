@@ -2,18 +2,18 @@ import Foundation
 
 /// Actionable intergenerational connection alert,
 /// mapped 1:1 to the MongoDB Atlas `sparks` collection.
-public struct SparkDocument: Identifiable, Codable, Equatable, Sendable {
-    public var id: String { _id }
-    public var _id: String
-    public var familyId: String
-    public var elderId: String
-    public var targetMemberId: String
-    public var matchedPassion: String
-    public var sparkMessage: String
-    public var ctaAction: String
-    public var isRead: Bool
-    public var status: String
-    public var createdAt: Date?
+struct SparkDocument: Identifiable, Codable, Equatable, Sendable {
+    var id: String { _id }
+    var _id: String
+    var familyId: String
+    var elderId: String
+    var targetMemberId: String
+    var matchedPassion: String
+    var sparkMessage: String
+    var ctaAction: String
+    var isRead: Bool
+    var status: String
+    var createdAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case _id
@@ -37,7 +37,7 @@ public struct SparkDocument: Identifiable, Codable, Equatable, Sendable {
         case altCreatedAt = "createdAt"
     }
 
-    public init(
+    init(
         id: String = UUID().uuidString,
         familyId: String,
         elderId: String,
@@ -61,7 +61,7 @@ public struct SparkDocument: Identifiable, Codable, Equatable, Sendable {
         self.createdAt = createdAt
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         let primaryId = try? container.decode(String.self, forKey: ._id)
@@ -102,7 +102,7 @@ public struct SparkDocument: Identifiable, Codable, Equatable, Sendable {
             ?? (try? container.decode(Date.self, forKey: .altCreatedAt))
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(_id, forKey: ._id)
         try container.encode(familyId, forKey: .familyId)

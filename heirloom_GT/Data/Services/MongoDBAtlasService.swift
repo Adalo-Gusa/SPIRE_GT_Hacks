@@ -8,8 +8,8 @@ import Foundation
 /// 2. Manages `members`, `stories`, and `sparks` collections.
 /// 3. Incorporates a resilient, in-memory 3-generation fallback cache so the
 ///    app continues to function seamlessly during live judging even under flaky venue Wi-Fi.
-public actor MongoDBAtlasService {
-    public static let shared = MongoDBAtlasService()
+actor MongoDBAtlasService {
+    static let shared = MongoDBAtlasService()
 
     private let baseURL: URL
     private let apiKey: String
@@ -23,7 +23,7 @@ public actor MongoDBAtlasService {
     private var localStories: [StoryDocument] = []
     private var localSparks: [SparkDocument] = []
 
-    public init(
+    init(
         baseURL: URL = AppConfiguration.atlasDataAPIBaseURL,
         apiKey: String = AppConfiguration.atlasDataAPIKey,
         cluster: String = AppConfiguration.mongoDBCluster,
@@ -42,7 +42,7 @@ public actor MongoDBAtlasService {
     // MARK: - Public API
 
     /// Fetches all members belonging to a family tree.
-    public func fetchFamilyMembers(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [MemberDocument] {
+    func fetchFamilyMembers(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [MemberDocument] {
         guard isNetworkConfigured else {
             print("[MongoDBAtlasService] Network not configured, returning \(localMembers.count) local members.")
             return Array(localMembers.values.filter { $0.familyId == familyId })
@@ -76,7 +76,7 @@ public actor MongoDBAtlasService {
     }
 
     /// Fetches all ingested oral history stories for the family corkboard.
-    public func fetchStories(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [StoryDocument] {
+    func fetchStories(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [StoryDocument] {
         guard isNetworkConfigured else {
             print("[MongoDBAtlasService] Network not configured, returning \(localStories.count) local stories.")
             return localStories.filter { $0.familyId == familyId }
@@ -112,7 +112,7 @@ public actor MongoDBAtlasService {
     }
 
     /// Inserts a new oral history story captured from Loomie into MongoDB Atlas.
-    public func insertStory(_ story: StoryDocument) async throws {
+    func insertStory(_ story: StoryDocument) async throws {
         // Optimistic local update
         if let idx = localStories.firstIndex(where: { $0._id == story._id }) {
             localStories[idx] = story
@@ -142,7 +142,7 @@ public actor MongoDBAtlasService {
     }
 
     /// Appends newly discovered hobbies / passions to a family member's profile in Atlas.
-    public func appendPassionsToMember(memberId: String, newPassions: [String]) async throws {
+    func appendPassionsToMember(memberId: String, newPassions: [String]) async throws {
         guard !newPassions.isEmpty else { return }
 
         // Local update
@@ -182,7 +182,7 @@ public actor MongoDBAtlasService {
     }
 
     /// Inserts an intergenerational spark notification into Atlas to bridge family members.
-    public func createSparkNotification(_ spark: SparkDocument) async throws {
+    func createSparkNotification(_ spark: SparkDocument) async throws {
         // Local update
         if let idx = localSparks.firstIndex(where: { $0._id == spark._id }) {
             localSparks[idx] = spark
@@ -212,7 +212,7 @@ public actor MongoDBAtlasService {
     }
 
     /// Fetches all active spark connection alerts for the family.
-    public func fetchSparks(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [SparkDocument] {
+    func fetchSparks(familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> [SparkDocument] {
         guard isNetworkConfigured else {
             return localSparks.filter { $0.familyId == familyId }
         }

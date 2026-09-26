@@ -2,21 +2,21 @@ import Foundation
 
 /// Represents a family member node in the HeirLoom corkboard tree,
 /// mapped 1:1 with the MongoDB Atlas `members` collection.
-public struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
-    public var id: String { _id }
-    public var _id: String
-    public var familyId: String
-    public var name: String
-    public var birthYear: Int
-    public var generationTier: Int
-    public var spouseId: String?
-    public var parents: [String]
-    public var children: [String]
-    public var passions: [String]
-    public var avatarUrl: String?
-    public var bio: String?
-    public var createdAt: Date?
-    public var updatedAt: Date?
+struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
+    var id: String { _id }
+    var _id: String
+    var familyId: String
+    var name: String
+    var birthYear: Int
+    var generationTier: Int
+    var spouseId: String?
+    var parents: [String]
+    var children: [String]
+    var passions: [String]
+    var avatarUrl: String?
+    var bio: String?
+    var createdAt: Date?
+    var updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case _id
@@ -42,7 +42,7 @@ public struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
         case altUpdatedAt = "updatedAt"
     }
 
-    public init(
+    init(
         id: String = UUID().uuidString,
         familyId: String,
         name: String,
@@ -72,7 +72,7 @@ public struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
         self.updatedAt = updatedAt
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         
         let primaryId = try? container.decode(String.self, forKey: ._id)
@@ -110,7 +110,7 @@ public struct MemberDocument: Identifiable, Codable, Equatable, Sendable {
             ?? (try? container.decode(Date.self, forKey: .altUpdatedAt))
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(_id, forKey: ._id)
         try container.encode(familyId, forKey: .familyId)

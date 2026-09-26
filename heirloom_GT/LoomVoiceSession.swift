@@ -199,7 +199,10 @@ final class LoomVoiceSession: ObservableObject {
             "session": [
                 "voice": AppConfiguration.grokVoiceName,
                 "instructions": instructions,
-                "turn_detection": ["type": "server_vad"],
+                "turn_detection": [
+                    "type": "server_vad",
+                    "silence_duration_ms": AppConfiguration.grokVoiceSilenceMs
+                ],
                 "reasoning": ["effort": "none"],
                 "audio": [
                     "input": [

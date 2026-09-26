@@ -17,6 +17,9 @@ enum AppConfiguration {
     static let grokVoiceModel = "grok-voice-latest"
     static let grokVoiceName = "eve"
     static let grokVoiceSampleRate: Double = 24_000
+    /// How long you can pause before Loomie treats your turn as finished and answers (milliseconds).
+    /// Longer lets people think mid-story without being cut off; shorter makes replies snappier.
+    static let grokVoiceSilenceMs = 3_000
     static let grokRealtimeURL = URL(string: "wss://api.x.ai/v1/realtime?model=\(grokVoiceModel)")!
     static let grokClientSecretsURL = URL(string: "https://api.x.ai/v1/realtime/client_secrets")!
 
