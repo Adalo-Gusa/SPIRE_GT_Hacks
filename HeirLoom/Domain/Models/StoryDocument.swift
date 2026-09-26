@@ -2,22 +2,22 @@ import Foundation
 
 /// Represents an oral family story artifact captured through Loomie,
 /// mapped 1:1 with the MongoDB Atlas `stories` collection.
-public struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
-    public var id: String { _id }
-    public var _id: String
-    public var familyId: String
-    public var authorId: String
-    public var title: String
-    public var narrativeSummary: String
-    public var extractedEra: String?
-    public var location: String?
-    public var passions: [String]
-    public var peopleMentioned: [String]
-    public var grokImaginePrompt: String?
-    public var rawTranscript: String?
-    public var imageUrl: String?
-    public var createdAt: Date?
-    public var updatedAt: Date?
+struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
+    var id: String { _id }
+    var _id: String
+    var familyId: String
+    var authorId: String
+    var title: String
+    var narrativeSummary: String
+    var extractedEra: String?
+    var location: String?
+    var passions: [String]
+    var peopleMentioned: [String]
+    var grokImaginePrompt: String?
+    var rawTranscript: String?
+    var imageUrl: String?
+    var createdAt: Date?
+    var updatedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case _id
@@ -47,7 +47,7 @@ public struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         case altUpdatedAt = "updatedAt"
     }
 
-    public init(
+    init(
         id: String = UUID().uuidString,
         familyId: String,
         authorId: String,
@@ -80,7 +80,7 @@ public struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// Convenience initializer bridging from a live Loomie StoryArtifact
-    public init(artifact: StoryArtifact, familyId: String = "fam_clarke_001", authorId: String = "member_grandpa_joe") {
+    init(artifact: StoryArtifact, familyId: String = "fam_clarke_001", authorId: String = "member_grandpa_joe") {
         self._id = artifact.id
         self.familyId = familyId
         self.authorId = authorId
@@ -98,7 +98,7 @@ public struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
     }
 
     /// Converts this MongoDB document back into a local StoryArtifact
-    public func toStoryArtifact() -> StoryArtifact {
+    func toStoryArtifact() -> StoryArtifact {
         StoryArtifact(
             id: _id,
             title: title,
@@ -113,7 +113,7 @@ public struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         )
     }
 
-    public init(from decoder: Decoder) throws {
+    init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         let primaryId = try? container.decode(String.self, forKey: ._id)
@@ -159,7 +159,7 @@ public struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
             ?? (try? container.decode(Date.self, forKey: .altUpdatedAt))
     }
 
-    public func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(_id, forKey: ._id)
         try container.encode(familyId, forKey: .familyId)
