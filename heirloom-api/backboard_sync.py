@@ -192,6 +192,12 @@ def format_story_memory(story: dict) -> str:
             parts.append(f"People: {', '.join(clean_names)}.")
     if passions:
         parts.append(f"Passions and hobbies: {', '.join(passions)}.")
+    golden_quote = story.get("golden_quote") or story.get("goldenQuote")
+    emotional_tone = story.get("emotional_tone") or story.get("emotionalTone")
+    if golden_quote:
+        parts.append(f'Golden Quote: "{golden_quote}".')
+    if emotional_tone:
+        parts.append(f"Emotional tone: {emotional_tone}.")
 
     return " ".join(parts)
 

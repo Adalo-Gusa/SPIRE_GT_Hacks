@@ -11,6 +11,9 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
     var narrativeSummary: String
     var extractedEra: String?
     var location: String?
+    var goldenQuote: String?
+    var emotionalTone: String?
+    var generationBridge: String?
     var passions: [String]
     var peopleMentioned: [String]
     var grokImaginePrompt: String?
@@ -32,6 +35,12 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         case extractedEra = "extracted_era"
         case altExtractedEra = "extractedEra"
         case location
+        case goldenQuote = "golden_quote"
+        case altGoldenQuote = "goldenQuote"
+        case emotionalTone = "emotional_tone"
+        case altEmotionalTone = "emotionalTone"
+        case generationBridge = "generation_bridge"
+        case altGenerationBridge = "generationBridge"
         case passions
         case peopleMentioned = "people_mentioned"
         case altPeopleMentioned = "peopleMentioned"
@@ -55,6 +64,9 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         narrativeSummary: String,
         extractedEra: String? = nil,
         location: String? = nil,
+        goldenQuote: String? = nil,
+        emotionalTone: String? = nil,
+        generationBridge: String? = nil,
         passions: [String] = [],
         peopleMentioned: [String] = [],
         grokImaginePrompt: String? = nil,
@@ -70,6 +82,9 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         self.narrativeSummary = narrativeSummary
         self.extractedEra = extractedEra
         self.location = location
+        self.goldenQuote = goldenQuote
+        self.emotionalTone = emotionalTone
+        self.generationBridge = generationBridge
         self.passions = passions
         self.peopleMentioned = peopleMentioned
         self.grokImaginePrompt = grokImaginePrompt
@@ -88,6 +103,9 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         self.narrativeSummary = artifact.narrativeSummary
         self.extractedEra = artifact.extractedEra
         self.location = artifact.location
+        self.goldenQuote = artifact.goldenQuote
+        self.emotionalTone = artifact.emotionalTone
+        self.generationBridge = artifact.generationBridge
         self.passions = artifact.passionsOrHobbies
         self.peopleMentioned = artifact.peopleMentioned
         self.grokImaginePrompt = artifact.grokImaginePrompt
@@ -107,6 +125,9 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
             location: location,
             peopleMentioned: peopleMentioned,
             passionsOrHobbies: passions,
+            goldenQuote: goldenQuote,
+            emotionalTone: emotionalTone,
+            generationBridge: generationBridge,
             grokImaginePrompt: grokImaginePrompt ?? "",
             rawTranscript: rawTranscript ?? "",
             createdAt: createdAt ?? Date()
@@ -139,6 +160,15 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
 
         self.location = (try? container.decode(String.self, forKey: .location))
 
+        self.goldenQuote = (try? container.decode(String.self, forKey: .goldenQuote))
+            ?? (try? container.decode(String.self, forKey: .altGoldenQuote))
+
+        self.emotionalTone = (try? container.decode(String.self, forKey: .emotionalTone))
+            ?? (try? container.decode(String.self, forKey: .altEmotionalTone))
+
+        self.generationBridge = (try? container.decode(String.self, forKey: .generationBridge))
+            ?? (try? container.decode(String.self, forKey: .altGenerationBridge))
+
         self.passions = (try? container.decode([String].self, forKey: .passions)) ?? []
         self.peopleMentioned = (try? container.decode([String].self, forKey: .peopleMentioned))
             ?? (try? container.decode([String].self, forKey: .altPeopleMentioned)) ?? []
@@ -168,6 +198,9 @@ struct StoryDocument: Identifiable, Codable, Equatable, Sendable {
         try container.encode(narrativeSummary, forKey: .narrativeSummary)
         try container.encodeIfPresent(extractedEra, forKey: .extractedEra)
         try container.encodeIfPresent(location, forKey: .location)
+        try container.encodeIfPresent(goldenQuote, forKey: .goldenQuote)
+        try container.encodeIfPresent(emotionalTone, forKey: .emotionalTone)
+        try container.encodeIfPresent(generationBridge, forKey: .generationBridge)
         try container.encode(passions, forKey: .passions)
         try container.encode(peopleMentioned, forKey: .peopleMentioned)
         try container.encodeIfPresent(grokImaginePrompt, forKey: .grokImaginePrompt)
