@@ -98,6 +98,8 @@ struct RecordsBookshelfView: View {
     private static let shelfBottom: CGFloat = 690
 
     @Environment(\.tabBarTop) private var tabBarTop
+    /// The book whose label or spine is being pressed; that book lifts off the shelf either way.
+    @State private var pressedBook: RecordBook?
 
     var body: some View {
         GeometryReader { proxy in
@@ -119,8 +121,10 @@ struct RecordsBookshelfView: View {
                     NavigationLink(value: book) {
                         Image(book.bookImage)
                             .resizable()
+                            .offset(y: pressedBook == book ? -14 : 0)
+                            .animation(.spring(duration: 0.25), value: pressedBook)
                     }
-                    .buttonStyle(BookPressStyle())
+                    .buttonStyle(PressReportingStyle { pressed in setPressed(book, pressed) })
                     .place(in: book.bookFrame)
                     // The label buttons already expose these destinations to VoiceOver.
                     .accessibilityHidden(true)
@@ -129,8 +133,10 @@ struct RecordsBookshelfView: View {
                 ForEach(Self.labelOrder) { book in
                     NavigationLink(value: book) {
                         RecordLabel(book: book)
+                            .scaleEffect(pressedBook == book ? 0.95 : 1)
+                            .animation(.spring(duration: 0.25), value: pressedBook)
                     }
-                    .buttonStyle(LabelPressStyle())
+                    .buttonStyle(PressReportingStyle { pressed in setPressed(book, pressed) })
                     .place(in: book.labelFrame)
                 }
             }
@@ -139,6 +145,14 @@ struct RecordsBookshelfView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
         .background { CorkboardBackground() }
+    }
+
+    private func setPressed(_ book: RecordBook, _ pressed: Bool) {
+        if pressed {
+            pressedBook = book
+        } else if pressedBook == book {
+            pressedBook = nil
+        }
     }
 }
 
@@ -176,20 +190,16 @@ private struct RecordLabel: View {
     }
 }
 
-private struct LabelPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .animation(.spring(duration: 0.25), value: configuration.isPressed)
-    }
-}
+/// A button style with no look of its own that reports presses, so a book and its label can share one
+/// pressed state: pressing either lifts the book and dips the label.
+private struct PressReportingStyle: ButtonStyle {
+    var onPressChange: (Bool) -> Void
 
-/// Books lift off the shelf a little while pressed.
-private struct BookPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .offset(y: configuration.isPressed ? -14 : 0)
-            .animation(.spring(duration: 0.25), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                onPressChange(isPressed)
+            }
     }
 }
 

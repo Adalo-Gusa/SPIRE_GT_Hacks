@@ -17,11 +17,27 @@ struct MainTabView: View {
     var body: some View {
         ZStack {
             CorkboardBackground()
-            page(for: selection)
-                .environment(\.tabBarTop, tabBarTop)
+            // All pages sit side by side on one strip, in tab-bar order, and the strip slides to the selected
+            // one, so switching tabs pans across a single connected canvas. Pages stay alive while offscreen.
+            GeometryReader { proxy in
+                HStack(spacing: 0) {
+                    ForEach(tabs) { tab in
+                        let isSelected = tab.id == selection
+                        page(for: tab.id)
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            // Keep each page inside its own column (the board's photos run past its edges).
+                            .clipShape(ColumnClip())
+                            .allowsHitTesting(isSelected)
+                            .accessibilityHidden(!isSelected)
+                    }
+                }
+                .offset(x: -CGFloat(selectedIndex) * proxy.size.width)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+            }
+            .environment(\.tabBarTop, tabBarTop)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            let bar = AppTabBar(tabs: tabs, selection: $selection)
+            let bar = AppTabBar(tabs: tabs, selection: slidingSelection)
             bar
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { barTop in
                     tabBarTop = barTop - bar.featuredRise
@@ -48,6 +64,22 @@ struct MainTabView: View {
         }
     }
 
+    private var selectedIndex: Int {
+        tabs.firstIndex { $0.id == selection } ?? 0
+    }
+
+    /// Tab selection that animates the strip sliding over to the chosen page.
+    private var slidingSelection: Binding<AppTab.ID> {
+        Binding {
+            selection
+        } set: { newSelection in
+            guard newSelection != selection else { return }
+            withAnimation(.easeInOut(duration: 0.4)) {
+                selection = newSelection
+            }
+        }
+    }
+
     private var boardPinch: some Gesture {
         MagnifyGesture(minimumScaleDelta: 0)
             .onChanged { value in
@@ -71,6 +103,13 @@ struct MainTabView: View {
         default:
             ContentUnavailableView("Coming soon", systemImage: "hammer")
         }
+    }
+}
+
+/// Clips a page to its width only, so backgrounds can still extend under the status bar and home indicator.
+private struct ColumnClip: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(CGRect(x: rect.minX, y: rect.minY - 2000, width: rect.width, height: rect.height + 4000))
     }
 }
 
