@@ -17,6 +17,10 @@ enum HeirloomColor {
 
     static let polaroidFrame = Color(hex: 0xE3CEB8)
     static let polaroidPhoto = Color(hex: 0xF0E4D7)
+
+    static let notebookPlum = Color(hex: 0x55324D)
+    static let labelBorder = Color(hex: 0xB59878)
+    static let labelMuted = Color(hex: 0x897865)
 }
 
 extension Color {

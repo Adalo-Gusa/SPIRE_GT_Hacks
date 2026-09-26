@@ -11,14 +11,21 @@ struct MainTabView: View {
     @State private var boardCamera = BoardCameraController()
     /// Height of the status-bar area; the board is laid out from the very top of the screen.
     @State private var topSafeArea: CGFloat = 0
+    /// Global y of the top of the tab bar's yarn button, shared with pages through the environment.
+    @State private var tabBarTop: CGFloat?
 
     var body: some View {
         ZStack {
             CorkboardBackground()
             page(for: selection)
+                .environment(\.tabBarTop, tabBarTop)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            AppTabBar(tabs: tabs, selection: $selection)
+            let bar = AppTabBar(tabs: tabs, selection: $selection)
+            bar
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { barTop in
+                    tabBarTop = barTop - bar.featuredRise
+                }
                 .padding(.horizontal, 13)
                 .padding(.bottom, 4)
         }
@@ -58,8 +65,7 @@ struct MainTabView: View {
             // The feed lives behind a floating camera button on the board rather than in the bar.
             HomeCorkboardView(cameraController: boardCamera) { isShowingFeed = true }
         case AppTab.records.id:
-            ContentUnavailableView("Records", systemImage: "book", description: Text("Your family's recorded stories will live here."))
-                .foregroundStyle(HeirloomColor.plum)
+            RecordsView()
         case AppTab.map.id:
             MapGlobeView()
         default:

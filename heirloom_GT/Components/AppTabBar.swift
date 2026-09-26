@@ -24,6 +24,13 @@ struct AppTabBar: View {
 
     var barHeight: CGFloat = 108
     var featuredDiameter: CGFloat = 176
+    /// How far the featured button sits above the bar's vertical center.
+    static let featuredLift: CGFloat = 10
+
+    /// How far the featured button rises above the top of the bar.
+    var featuredRise: CGFloat {
+        max(0, (featuredDiameter - barHeight) / 2 + Self.featuredLift)
+    }
     /// Tint laid over the glass (and over the blur on iOS versions without Liquid Glass).
     var glassTint: Color = HeirloomColor.plum.opacity(0.2)
 
@@ -48,7 +55,7 @@ struct AppTabBar: View {
             .overlay {
                 if let featuredIndex {
                     featuredButton(for: tabs[featuredIndex])
-                        .offset(y: -10)
+                        .offset(y: -Self.featuredLift)
                 }
             }
         }
@@ -155,4 +162,17 @@ extension AppTab {
         }
     }
     return Demo()
+}
+
+private struct TabBarTopKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    /// Global y of the highest point of the tab bar (the top of the yarn button), so pages can keep content
+    /// clear of it. Needed because some containers, like `NavigationStack`, extend under the bar.
+    var tabBarTop: CGFloat? {
+        get { self[TabBarTopKey.self] }
+        set { self[TabBarTopKey.self] = newValue }
+    }
 }
