@@ -380,6 +380,15 @@ final class LoomVoiceSession: ObservableObject {
                 setPhase(.listening)
             }
 
+        case "ping":
+            // Periodic capture health check: shows whether the mic tap fires and conversion succeeds.
+            if var snapshot = audioIO?.snapshot() {
+                snapshot["phase"] = phase.rawValue
+                snapshot["accept_mic"] = acceptMic
+                snapshot["pending_chunks"] = pendingAudio.count
+                logger?.log("audio.diag", snapshot)
+            }
+
         case "error":
             let detail = (object["error"] as? [String: Any])?["message"] as? String
                 ?? object["message"] as? String

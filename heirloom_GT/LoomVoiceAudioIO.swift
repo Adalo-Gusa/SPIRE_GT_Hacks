@@ -18,6 +18,16 @@ final class LoomVoiceAudioIO {
     private var started = false
     private let lock = NSLock()
 
+    // Capture diagnostics, reported through `snapshot()` (guarded by `lock`).
+    private var hwFormatDescription = ""
+    private var tapBuffers = 0
+    private var capturedChunks = 0
+    private var convertFailures = 0
+    private var lastCaptureError = ""
+    private var configChanges = 0
+    private var runningAfterStart = false
+    private var configObserver: NSObjectProtocol?
+
     func start() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(
@@ -29,8 +39,29 @@ final class LoomVoiceAudioIO {
         try session.setActive(true)
 
         // Voice processing reconfigures the I/O formats, so enable it before connecting nodes or reading formats.
+        try? engine.inputNode.setVoiceProcessingEnabled(true)
+        engine.attach(player)
+
+        // Enabling voice processing (and route changes like plugging in headphones) makes iOS reconfigure the
+        // audio hardware, which silently stops the engine right after it starts. Without a restart the mic tap
+        // never fires, so no audio reaches Grok. Rebuild the graph and restart whenever that happens.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            self?.handleConfigurationChange()
+        }
+
+        try configureGraphAndStart()
+        runningAfterStart = engine.isRunning
+        started = true
+    }
+
+    /// Connects the player, builds converters for the current hardware formats, installs the mic tap and
+    /// starts the engine. Safe to call again after a configuration change.
+    private func configureGraphAndStart() throws {
         let input = engine.inputNode
-        try? input.setVoiceProcessingEnabled(true)
+        input.removeTap(onBus: 0)
+        engine.disconnectNodeOutput(player)
 
         // Give the player an explicit mono format at the output rate and let the mixer upmix/route it.
         // scheduleBuffer requires buffers to match the player's output format exactly (including channel
@@ -42,7 +73,6 @@ final class LoomVoiceAudioIO {
         ) else {
             throw LoomError.decoding("Could not build playback format.")
         }
-        engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playerFormat)
 
         let hwFormat = input.outputFormat(forBus: 0)
@@ -60,12 +90,18 @@ final class LoomVoiceAudioIO {
         }
 
         captureConverter = AVAudioConverter(from: hwFormat, to: targetFormat)
-        playbackFormat = player.outputFormat(forBus: 0)
-        if let playbackFormat {
-            playbackConverter = AVAudioConverter(from: targetFormat, to: playbackFormat)
+        hwFormatDescription = "\(hwFormat.sampleRate)Hz \(hwFormat.channelCount)ch \(hwFormat.commonFormat.rawValue) interleaved=\(hwFormat.isInterleaved)"
+        if captureConverter == nil {
+            lastCaptureError = "no converter for \(hwFormatDescription)"
         }
+        playbackFormat = player.outputFormat(forBus: 0)
+        playbackConverter = playbackFormat.flatMap { AVAudioConverter(from: targetFormat, to: $0) }
 
-        input.removeTap(onBus: 0)
+        // Scheduled playback times belong to the old engine timeline.
+        lock.lock()
+        nextPlayTime = nil
+        lock.unlock()
+
         let bufferSize = AVAudioFrameCount(max(hwFormat.sampleRate * 0.1, 1024))
         input.installTap(onBus: 0, bufferSize: bufferSize, format: hwFormat) { [weak self] buffer, _ in
             self?.capture(buffer, targetFormat: targetFormat)
@@ -74,10 +110,32 @@ final class LoomVoiceAudioIO {
         engine.prepare()
         try engine.start()
         player.play()
-        started = true
+    }
+
+    private func handleConfigurationChange() {
+        lock.lock()
+        configChanges += 1
+        let changes = configChanges
+        lock.unlock()
+        guard started else { return }
+        // A handful of changes is normal (voice processing, route changes); endless ones mean something is wrong.
+        guard changes <= 10 else {
+            onError?("The audio device keeps reconfiguring; stopping the voice session.")
+            return
+        }
+        do {
+            try configureGraphAndStart()
+        } catch {
+            onError?("Could not restart audio: \(error.localizedDescription)")
+        }
     }
 
     func stop() {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+            self.configObserver = nil
+        }
+        started = false
         engine.inputNode.removeTap(onBus: 0)
         player.stop()
         engine.stop()
@@ -182,12 +240,44 @@ final class LoomVoiceAudioIO {
             "play_rate": engine.mainMixerNode.outputFormat(forBus: 0).sampleRate,
             "play_state": engine.isRunning ? "running" : "stopped",
             "capture_frames": Int(session.ioBufferDuration * session.sampleRate),
-            "target_rate": Int(Self.targetRate)
+            "target_rate": Int(Self.targetRate),
+            "record_permission": Self.recordPermissionDescription,
+            "input_available": session.isInputAvailable,
+            "hw_format": hwFormatDescription,
+            "tap_buffers": tapBuffers,
+            "captured_chunks": capturedChunks,
+            "convert_failures": convertFailures,
+            "last_capture_error": lastCaptureError,
+            "config_changes": configChanges,
+            "running_after_start": runningAfterStart
         ]
     }
 
+    private static var recordPermissionDescription: String {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted: return "granted"
+        case .denied: return "denied"
+        case .undetermined: return "undetermined"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private func noteCaptureFailure(_ message: String) {
+        lock.lock()
+        convertFailures += 1
+        lastCaptureError = message
+        lock.unlock()
+    }
+
     private func capture(_ buffer: AVAudioPCMBuffer, targetFormat: AVAudioFormat) {
-        guard let captureConverter, buffer.frameLength > 0 else { return }
+        lock.lock()
+        tapBuffers += 1
+        lock.unlock()
+        guard let captureConverter else {
+            noteCaptureFailure("no converter for \(buffer.format)")
+            return
+        }
+        guard buffer.frameLength > 0 else { return }
         let ratio = targetFormat.sampleRate / buffer.format.sampleRate
         let outFrames = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
         guard let dest = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outFrames) else { return }
@@ -203,7 +293,13 @@ final class LoomVoiceAudioIO {
             status.pointee = .haveData
             return buffer
         }
-        guard dest.frameLength > 0, let channels = dest.int16ChannelData else { return }
+        guard dest.frameLength > 0, let channels = dest.int16ChannelData else {
+            noteCaptureFailure(error?.localizedDescription ?? "converter produced no frames from \(buffer.format)")
+            return
+        }
+        lock.lock()
+        capturedChunks += 1
+        lock.unlock()
 
         let byteCount = Int(dest.frameLength) * 2
         let data = Data(bytes: channels[0], count: byteCount)
