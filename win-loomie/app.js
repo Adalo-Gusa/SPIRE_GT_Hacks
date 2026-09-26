@@ -443,7 +443,7 @@ class VoiceSession {
       session: {
         voice: "eve",
         instructions,
-        turn_detection: { type: "server_vad" },
+        turn_detection: { type: "server_vad", silence_duration_ms: 1200 },
         reasoning: { effort: "none" },
         audio: {
           input: {
@@ -452,6 +452,15 @@ class VoiceSession {
           },
           output: { format: { type: "audio/pcm", rate: SAMPLE_RATE } },
         },
+      },
+    });
+  }
+
+  updateInstructionsOnly(instructions) {
+    this.sendJSON({
+      type: "session.update",
+      session: {
+        instructions,
       },
     });
   }
@@ -665,7 +674,7 @@ class VoiceSession {
     }).then((result) => result.json()).catch(() => ({ memories: [] }));
     if (recalled.memories?.length) this.seedMemories = recalled.memories;
     this.pendingInstructions = voiceInstructions(this.seedMemories, this.sessionFacts);
-    this.sendSessionUpdate(this.pendingInstructions);
+    this.updateInstructionsOnly(this.pendingInstructions);
   }
 
   setPhase(next) {
