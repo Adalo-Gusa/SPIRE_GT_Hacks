@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loomie</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Loomie</h1>
+      <p>Windows preview · use headphones</p>
+    </header>
+    <main id="transcript" aria-live="polite"></main>
+    <section id="artifact-card" class="artifact-card" hidden></section>
+    <form class="composer" id="composer">
+      <label class="sr" for="draft">Message</label>
+      <textarea id="draft" rows="1" placeholder="Say hi, or tell Loomie a story…"></textarea>
+      <button type="button" class="ghost" id="action" aria-label="Start voice">
+        <span class="bars" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+        <span class="send" hidden>↑</span>
+      </button>
+    </form>
+    <p id="status" class="sr" role="status"></p>
+    <footer>
+      <button type="button" id="wrap-up-story">Wrap Up &amp; Save Story</button>
+      <button type="button" id="new-thread">New Conversation</button>
+      <button type="button" id="memory-test">Run Memory Recall Test</button>
+      <button type="button" id="story-test">Run Cross-Session Story Test</button>
+      <button type="button" id="mongo-test">Test MongoDB Atlas</button>
+      <button type="button" id="search-connections">Explore Connections (Grok)</button>
+      <button type="button" id="view-corkboard">View Corkboard Tree</button>
+    </footer>
+  </div>
+
+  <div id="corkboard-overlay" class="corkboard-overlay" hidden>
+    <div class="corkboard-header">
+      <h2>Family Corkboard Tree</h2>
+      <div class="corkboard-actions">
+        <button type="button" id="corkboard-refresh">Refresh Layout</button>
+        <button type="button" id="corkboard-close">✕ Close</button>
+      </div>
+    </div>
+    <div class="corkboard-viewport">
+      <div id="corkboard-board" class="corkboard-board">
+        <svg id="corkboard-svg" class="corkboard-svg"></svg>
+        <div id="corkboard-cards"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

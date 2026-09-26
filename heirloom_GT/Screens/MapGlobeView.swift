@@ -4,43 +4,24 @@ import simd
 
 /// A place tied to a family story, shown as a pin on the globe.
 struct FamilyPlace: Identifiable {
-    let id = UUID()
+    /// The story's id, so a pin keeps its identity (and selection) across refreshes.
+    let id: String
     var name: String
     var detail: String
     var coordinate: CLLocationCoordinate2D
     var pinColor: Color = HeirloomColor.rose
 }
 
-extension FamilyPlace {
-    static let samples: [FamilyPlace] = [
-        FamilyPlace(
-            name: "Halifax, Nova Scotia",
-            detail: "Joseph's first shortwave contact, 1962",
-            coordinate: CLLocationCoordinate2D(latitude: 44.6488, longitude: -63.5752)),
-        FamilyPlace(
-            name: "Atlanta, Georgia",
-            detail: "Where the family moved in 1978",
-            coordinate: CLLocationCoordinate2D(latitude: 33.7490, longitude: -84.3880)),
-        FamilyPlace(
-            name: "Durham, North Carolina",
-            detail: "Grandma's first classroom",
-            coordinate: CLLocationCoordinate2D(latitude: 35.9940, longitude: -78.8986),
-            pinColor: HeirloomColor.plumMuted),
-        FamilyPlace(
-            name: "Cork, Ireland",
-            detail: "The Clarke family farm",
-            coordinate: CLLocationCoordinate2D(latitude: 51.8985, longitude: -8.4756)),
-    ]
-}
-
 /// Apple Maps' 3D globe, drained of color and tinted into the HeirLoom tans, with pushpins for family places.
 /// Spinning, pinching, tilting and rotating are all Apple Maps' own gestures.
 struct MapGlobeView: View {
-    var places: [FamilyPlace] = FamilyPlace.samples
+    var places: [FamilyPlace] = []
     /// Multiplied over the lightened grayscale map: white becomes this color and darker grays become deeper tans.
     var tint: Color = HeirloomColor.polaroidFrame
 
     @State private var position: MapCameraPosition = .camera(Self.globeCamera)
+    /// Latest camera, so pins can be re-placed when places arrive without the globe moving.
+    @State private var lastCamera: MapCamera = Self.globeCamera
     /// Where each pin is drawn. Recomputed in the map's camera callback, never while the view is drawing:
     /// MapKit's coordinate conversions inside `body` stall SwiftUI's updates for the overlay.
     @State private var placements: [FamilyPlace.ID: PinPlacement] = [:]
@@ -87,7 +68,12 @@ struct MapGlobeView: View {
                 .contrast(0.85)
                 .colorMultiply(tint)
                 .onMapCameraChange(frequency: .continuous) { context in
+                    lastCamera = context.camera
                     placements = computePlacements(proxy: proxy, camera: context.camera)
+                }
+                // Places load (and geocode) after the map appears; place their pins as soon as they arrive.
+                .onChange(of: places.map(\.id)) { _, _ in
+                    placements = computePlacements(proxy: proxy, camera: lastCamera)
                 }
                 // Pins are drawn over the map rather than as map annotations so the tint doesn't wash them out.
                 .overlay {

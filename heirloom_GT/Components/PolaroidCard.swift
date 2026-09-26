@@ -3,6 +3,8 @@ import SwiftUI
 /// A reusable polaroid-style photo. It has no built-in position; callers place, rotate and drag it.
 struct PolaroidCard: View {
     var image: Image?
+    /// A remote photo, loaded when there's no local `image`.
+    var imageURL: URL?
     var caption: String?
     var frameColor: Color = HeirloomColor.polaroidFrame
     var placeholderColor: Color = HeirloomColor.polaroidPhoto
@@ -19,6 +21,14 @@ struct PolaroidCard: View {
                     image
                         .resizable()
                         .scaledToFill()
+                } else if let imageURL {
+                    AsyncImage(url: imageURL) { phase in
+                        if let loaded = phase.image {
+                            loaded
+                                .resizable()
+                                .scaledToFill()
+                        }
+                    }
                 }
             }
             .frame(width: Self.photoSize.width, height: Self.photoSize.height)

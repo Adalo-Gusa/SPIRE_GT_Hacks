@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The home board: draggable polaroids with pins and strings that follow them, on a canvas you can
-/// pinch to zoom, drag to pan, and double-tap to focus a photo or fit everything.
+/// The home board: the family tree as pinned polaroids joined by strings (spouse and parent–child), on a
+/// canvas you can pinch to zoom, drag to pan, and double-tap to focus a photo or fit everything.
+/// Photos are fixed in place; their layout comes from `CorkboardModel.familyTree(from:)`.
 /// The pinch itself is recognized by the screen that hosts the board (see `MainTabView`), which drives `cameraController`.
 struct HomeCorkboardView: View {
     static let boardSpace = "corkboard"
@@ -10,7 +11,10 @@ struct HomeCorkboardView: View {
     /// Opens the family feed from the floating camera button.
     var onOpenFeed: () -> Void = {}
 
-    @State private var board = CorkboardModel.sample()
+    @EnvironmentObject private var archive: FamilyArchive
+    @State private var board = CorkboardModel()
+    /// Bumped whenever the tree is rebuilt, so the camera re-fits the whole tree on screen.
+    @State private var fitRequest = 0
     @State private var panStart: (pan: CGSize, translation: CGSize)?
 
     private var camera: BoardCamera {
@@ -22,6 +26,10 @@ struct HomeCorkboardView: View {
         // The outer reader respects the safe area so the feed button can sit just below the status bar.
         GeometryReader { outer in
             board(topInset: outer.safeAreaInsets.top)
+        }
+        .task(id: archive.members.map(\.id)) {
+            board = CorkboardModel.familyTree(from: archive.members)
+            fitRequest += 1
         }
     }
 
@@ -37,18 +45,15 @@ struct HomeCorkboardView: View {
             ZStack {
                 CorkboardBackground(spacing: 72 * scale, origin: toScreen(CGPoint(x: 4, y: 34)))
                     .contentShape(Rectangle())
-                    .gesture(panGesture)
                     .onTapGesture(count: 2) {
                         withAnimation(.snappy) { camera = fitAllCamera(viewport: viewport, baseScale: baseScale) }
                     }
 
                 ForEach(board.photos) { photo in
-                    DraggablePolaroid(
+                    PinnedPolaroid(
                         photo: photo,
-                        board: board,
                         center: toScreen(photo.center),
-                        scale: scale,
-                        isZooming: cameraController.isPinching
+                        scale: scale
                     ) {
                         withAnimation(.snappy) {
                             camera = focusCamera(on: photo, viewport: viewport, baseScale: baseScale)
@@ -83,6 +88,12 @@ struct HomeCorkboardView: View {
             }
             .frame(width: viewport.width, height: viewport.height)
             .coordinateSpace(.named(Self.boardSpace))
+            // Dragging anywhere pans the board, including on a photo (photos themselves don't move).
+            .gesture(panGesture)
+            .task(id: fitRequest) {
+                guard fitRequest > 0, !board.photos.isEmpty else { return }
+                camera = fitAllCamera(viewport: viewport, baseScale: baseScale)
+            }
             .accessibilityZoomAction { action in
                 let factor: CGFloat = action.direction == .zoomIn ? 1.5 : 1 / 1.5
                 let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
@@ -147,48 +158,23 @@ struct HomeCorkboardView: View {
     }
 }
 
-private struct DraggablePolaroid: View {
+/// A family member's photo, fixed in place on the board. Double-tap zooms in on it.
+private struct PinnedPolaroid: View {
     let photo: BoardPhoto
-    let board: CorkboardModel
     /// Screen position of the photo's center.
     let center: CGPoint
     /// Screen points per board unit (layout scale × zoom).
     let scale: CGFloat
-    let isZooming: Bool
     var onDoubleTap: () -> Void
 
-    @State private var dragStart: (center: CGPoint, translation: CGSize)?
-
     var body: some View {
-        PolaroidCard(image: photo.imageName.map { Image($0) }, caption: photo.caption)
+        PolaroidCard(image: photo.imageName.map { Image($0) }, imageURL: photo.imageURL, caption: photo.caption)
             .contentShape(Rectangle())
             .scaleEffect(scale)
             .rotationEffect(photo.rotation)
             .onTapGesture(count: 2, perform: onDoubleTap)
-            // Measure the drag in the board's space: the card's own space is scaled, rotated and moves
-            // with the finger, which feeds back into the translation and makes the card jitter.
-            .gesture(
-                DragGesture(coordinateSpace: .named(HomeCorkboardView.boardSpace))
-                    .onChanged { value in
-                        // A second finger turns this into a pinch; resume from wherever the photo is afterwards.
-                        guard !isZooming else {
-                            dragStart = nil
-                            return
-                        }
-                        if dragStart == nil {
-                            dragStart = (photo.center, value.translation)
-                            // No animation: an animated reorder would also animate the first few moves.
-                            board.bringToFront(photo.id)
-                        }
-                        guard let start = dragStart else { return }
-                        board.movePhoto(photo.id, to: CGPoint(
-                            x: start.center.x + (value.translation.width - start.translation.width) / scale,
-                            y: start.center.y + (value.translation.height - start.translation.height) / scale))
-                    }
-                    .onEnded { _ in dragStart = nil }
-            )
             .position(center)
-            .accessibilityHint("Drag to move. Double-tap to zoom in.")
+            .accessibilityHint("Double-tap to zoom in.")
     }
 }
 
@@ -196,5 +182,6 @@ private struct DraggablePolaroid: View {
     ZStack {
         CorkboardBackground()
         HomeCorkboardView(cameraController: BoardCameraController())
+            .environmentObject(FamilyArchive())
     }
 }

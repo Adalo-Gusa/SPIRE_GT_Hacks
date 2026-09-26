@@ -33,6 +33,8 @@ struct AppTabBar: View {
     }
     /// Tint laid over the glass (and over the blur on iOS versions without Liquid Glass).
     var glassTint: Color = HeirloomColor.plum.opacity(0.2)
+    /// Called when the featured button is tapped while its tab is already selected (Home uses it to open Loomie).
+    var onFeaturedReselect: (() -> Void)? = nil
 
     var body: some View {
         let featuredIndex = tabs.firstIndex(where: \.isFeatured)
@@ -84,9 +86,13 @@ struct AppTabBar: View {
 
     private func featuredButton(for tab: AppTab) -> some View {
         Button {
-            selection = tab.id
+            if selection == tab.id {
+                onFeaturedReselect?()
+            } else {
+                selection = tab.id
+            }
         } label: {
-            icon(for: tab.icon)
+            featuredIcon(for: tab.icon)
                 .frame(width: featuredDiameter, height: featuredDiameter)
                 .glassBackground(in: Circle(), tint: glassTint)
         }
@@ -108,6 +114,35 @@ struct AppTabBar: View {
                 .foregroundStyle(HeirloomColor.rose)
                 .frame(width: 53, height: 53)
                 .background(HeirloomColor.plumMuted, in: Circle())
+        }
+    }
+}
+
+extension AppTabBar {
+    /// The big center button's artwork. Assets (the yarn) are drawn as-is; a symbol is drawn inside a ring that
+    /// echoes the yarn's, sized for the large button.
+    @ViewBuilder
+    fileprivate func featuredIcon(for icon: AppTab.Icon) -> some View {
+        switch icon {
+        case .asset(let name):
+            Image(name)
+                .resizable()
+                .scaledToFit()
+        case .symbol(let name):
+            ZStack {
+                Circle()
+                    .fill(HeirloomColor.polaroidFrame)
+                Circle()
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color(hex: 0x503650), Color(hex: 0xA57E9C)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 7)
+                Image(systemName: name)
+                    .font(.system(size: 50, weight: .semibold))
+                    .foregroundStyle(HeirloomColor.rose)
+            }
+            .padding(featuredDiameter * 0.1)
         }
     }
 }

@@ -7,13 +7,23 @@ struct BoardPhoto: Identifiable {
     var center: CGPoint
     var rotation: Angle
     var imageName: String?
+    /// A remote photo (e.g. a family member's avatar); shown when there's no bundled `imageName`.
+    var imageURL: URL?
     var caption: String?
 
-    init(id: UUID = UUID(), center: CGPoint, rotation: Angle = .zero, imageName: String? = nil, caption: String? = nil) {
+    init(
+        id: UUID = UUID(),
+        center: CGPoint,
+        rotation: Angle = .zero,
+        imageName: String? = nil,
+        imageURL: URL? = nil,
+        caption: String? = nil
+    ) {
         self.id = id
         self.center = center
         self.rotation = rotation
         self.imageName = imageName
+        self.imageURL = imageURL
         self.caption = caption
     }
 }
@@ -130,5 +140,54 @@ extension CorkboardModel {
             photos: [left, right, bottom],
             pins: [bottomPin, rightPin],
             connections: [BoardConnection(from: bottomPin.id, to: rightPin.id)])
+    }
+}
+
+extension CorkboardModel {
+    /// The family tree: one polaroid per member, laid out in generation tiers by `CorkboardLayoutEngine`,
+    /// with a pin on each photo and strings for spouse and parent–child relationships.
+    static func familyTree(from members: [MemberDocument]) -> CorkboardModel {
+        let card = PolaroidCard.size
+        // Run the engine at the board's polaroid size so its positions come out in board units.
+        let engine = CorkboardLayoutEngine(
+            cardWidth: card.width,
+            cardHeight: card.height,
+            horizontalGap: 70,
+            spouseGap: 36,
+            tierHeight: card.height + 130,
+            topPadding: 60,
+            leftPadding: 40)
+        let layout = engine.computeLayout(for: members)
+
+        var photos: [BoardPhoto] = []
+        var pinByMember: [String: BoardPin.ID] = [:]
+        var pins: [BoardPin] = []
+        // Stable order so the board doesn't reshuffle between refreshes.
+        for node in layout.nodes.sorted(by: { ($0.position.y, $0.position.x) < ($1.position.y, $1.position.x) }) {
+            let photo = BoardPhoto(
+                center: CGPoint(x: node.position.x + node.size.width / 2, y: node.position.y + node.size.height / 2),
+                rotation: .degrees(node.rotationDegrees),
+                imageURL: node.member.avatarUrl.flatMap(URL.init(string:)),
+                caption: node.member.name)
+            photos.append(photo)
+
+            // Pushed into the top edge of the photo, tilted a little in a direction that varies per card.
+            let tilt: Angle = .degrees(node.rotationDegrees >= 0 ? -10 : 10)
+            let pin = BoardPin(photoID: photo.id, offset: CGPoint(x: 0, y: -card.height / 2 + 12), tilt: tilt)
+            pins.append(pin)
+            pinByMember[node.member._id] = pin.id
+        }
+
+        let connections: [BoardConnection] = layout.strings.compactMap { string in
+            guard let from = pinByMember[string.fromMemberId], let to = pinByMember[string.toMemberId] else { return nil }
+            switch string.type {
+            case .spouse:
+                return BoardConnection(from: from, to: to, color: HeirloomColor.rose, curve: .init(startBend: 0.04, endBend: 0.04))
+            case .parentChild, .passionConnection:
+                return BoardConnection(from: from, to: to, color: HeirloomColor.string, curve: .init(startBend: 0.06, endBend: -0.06))
+            }
+        }
+
+        return CorkboardModel(photos: photos, pins: pins, connections: connections)
     }
 }

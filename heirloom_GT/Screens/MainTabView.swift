@@ -3,7 +3,14 @@ import SwiftUI
 /// The app shell: the board background, the selected page, and the persistent bottom bar.
 struct MainTabView: View {
     /// Add an `AppTab` here (and a case in `page(for:)`) to add a page to the bar.
-    private let tabs: [AppTab] = [.records, .home, .map]
+    /// The center button shows the yarn on Home (tap it to talk to Loomie) and a family-tree icon elsewhere
+    /// (tap it to go back Home).
+    private var tabs: [AppTab] {
+        let home = selection == AppTab.home.id
+            ? AppTab(id: AppTab.home.id, title: "Talk to Loomie", icon: .asset("TabYarn"), isFeatured: true)
+            : AppTab(id: AppTab.home.id, title: "Family tree", icon: .symbol("person.3.sequence.fill"), isFeatured: true)
+        return [.records, home, .map]
+    }
 
     @State private var selection = AppTab.home.id
     @State private var isShowingFeed = false
@@ -13,6 +20,11 @@ struct MainTabView: View {
     @State private var topSafeArea: CGFloat = 0
     /// Global y of the top of the tab bar's yarn button, shared with pages through the environment.
     @State private var tabBarTop: CGFloat?
+
+    /// Members, stories and places shared by every page.
+    @StateObject private var archive = FamilyArchive()
+    @StateObject private var loomie = LoomieChatController()
+    @State private var isChatOpen = false
 
     var body: some View {
         ZStack {
@@ -35,9 +47,25 @@ struct MainTabView: View {
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
             }
             .environment(\.tabBarTop, tabBarTop)
+
+            // Loomie chats over the Home board only, above the page and below the tab bar.
+            if isChatOpen && selection == AppTab.home.id {
+                LoomieChatOverlay(controller: loomie) { closeChat() }
+                    .environment(\.tabBarTop, tabBarTop)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .environmentObject(archive)
+        .task { await archive.refresh() }
+        .onChange(of: selection) { _, newSelection in
+            if newSelection != AppTab.home.id { closeChat() }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            let bar = AppTabBar(tabs: tabs, selection: slidingSelection)
+            let bar = AppTabBar(tabs: tabs, selection: slidingSelection) {
+                // The yarn toggles Loomie while on Home.
+                if isChatOpen { closeChat() } else { openChat() }
+            }
             bar
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { barTop in
                     tabBarTop = barTop - bar.featuredRise
@@ -47,7 +75,7 @@ struct MainTabView: View {
         }
         // Recognize the board's pinch over the whole screen, tab bar included, so a finger that lands on
         // the bar or a button still counts. Other tabs keep their own gestures (the map has its own pinch).
-        .simultaneousGesture(boardPinch, including: selection == AppTab.home.id ? .all : .subviews)
+        .simultaneousGesture(boardPinch, including: selection == AppTab.home.id && !isChatOpen ? .all : .subviews)
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -62,6 +90,15 @@ struct MainTabView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(HeirloomColor.board)
         }
+    }
+
+    private func openChat() {
+        withAnimation(.easeInOut(duration: 0.25)) { isChatOpen = true }
+    }
+
+    private func closeChat() {
+        loomie.end()
+        withAnimation(.easeInOut(duration: 0.25)) { isChatOpen = false }
     }
 
     private var selectedIndex: Int {
@@ -99,7 +136,7 @@ struct MainTabView: View {
         case AppTab.records.id:
             RecordsView()
         case AppTab.map.id:
-            MapGlobeView()
+            MapGlobeView(places: archive.places)
         default:
             ContentUnavailableView("Coming soon", systemImage: "hammer")
         }

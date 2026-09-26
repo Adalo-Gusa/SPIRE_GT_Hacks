@@ -1,0 +1,388 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #f6f5f2;
+  color: #1c1c1e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e6e4df;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+header p {
+  margin: 0;
+  color: #6b675f;
+  font-size: 12px;
+}
+
+#transcript {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.line {
+  padding: 10px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.line .who {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
+.line.you { background: rgba(120, 120, 128, 0.12); }
+.line.loomie { background: rgba(88, 86, 214, 0.10); }
+.line.loomie .who { color: #5856d6; }
+.line.error { background: rgba(255, 59, 48, 0.10); }
+.line.error .who { color: #d70015; }
+.line.test { background: rgba(255, 149, 0, 0.14); }
+.line.test .who { color: #8a5a00; }
+
+.composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 16px 8px;
+  border-top: 1px solid #e6e4df;
+}
+
+textarea {
+  flex: 1;
+  resize: none;
+  min-height: 40px;
+  max-height: 96px;
+  border: 1px solid #d6d3cc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+button.primary, button.ghost {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+button.primary {
+  border: 0;
+  background: #5856d6;
+  color: white;
+}
+
+button.ghost {
+  border: 1px solid #d6d3cc;
+  background: white;
+  color: #1c1c1e;
+}
+
+button:disabled { opacity: 0.45; cursor: default; }
+
+.bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+}
+
+.bars span {
+  width: 3px;
+  height: 16px;
+  border-radius: 99px;
+  background: currentColor;
+  transform: scaleY(0.4);
+  transform-origin: center;
+}
+
+.live .bars span { animation: bar 0.9s ease-in-out infinite; }
+.live.speaking .bars span { animation-duration: 0.28s; }
+.live.listening .bars span { animation-duration: 0.55s; }
+.live.connecting .bars, .live.thinking .bars { opacity: 0.78; }
+
+.bars span:nth-child(2) { animation-delay: 0.1s; }
+.bars span:nth-child(3) { animation-delay: 0.2s; }
+.bars span:nth-child(4) { animation-delay: 0.3s; }
+
+@keyframes bar {
+  0%, 100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bars span { animation: none; transform: scaleY(0.65); }
+}
+
+footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 16px;
+  padding: 8px 16px 16px;
+}
+
+footer button {
+  border: 0;
+  background: transparent;
+  color: #5856d6;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.artifact-card {
+  margin: 0 16px 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(88, 86, 214, 0.08);
+  border: 1px solid rgba(88, 86, 214, 0.18);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.artifact-card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+  color: #3634a3;
+}
+
+.artifact-card p {
+  margin: 0 0 6px;
+  color: #2c2c2e;
+}
+
+.artifact-card .meta {
+  color: #636366;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mongo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #00ed64;
+  color: #001e2b;
+  font-weight: 650;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+  width: fit-content;
+}
+
+/* --- Conspiracy Corkboard Modal & Canvas --- */
+.corkboard-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 16, 14, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+
+.corkboard-overlay[hidden] {
+  display: none;
+}
+
+.corkboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #2d261e;
+  color: #f5ebe0;
+  border-bottom: 2px solid #4a3b2c;
+}
+
+.corkboard-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  font-family: Georgia, serif;
+  letter-spacing: 0.5px;
+}
+
+.corkboard-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.corkboard-actions button {
+  background: #3e3224;
+  color: #fff;
+  border: 1px solid #6b553e;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.corkboard-viewport {
+  flex: 1;
+  overflow: auto;
+  background: #d4b28c;
+  background-image: radial-gradient(rgba(80, 50, 20, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+  padding: 30px;
+}
+
+.corkboard-board {
+  position: relative;
+  min-width: 1400px;
+  min-height: 950px;
+}
+
+.corkboard-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.corkboard-card {
+  position: absolute;
+  width: 160px;
+  height: 190px;
+  background: #faf8f5;
+  border-radius: 3px;
+  box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.15);
+  padding: 12px 10px 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 2;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.corkboard-card:hover {
+  transform: scale(1.05) !important;
+  box-shadow: 4px 8px 18px rgba(0, 0, 0, 0.38);
+  z-index: 10;
+}
+
+.corkboard-photo {
+  width: 136px;
+  height: 110px;
+  background: #e2dbce;
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.corkboard-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.corkboard-photo .initials {
+  font-size: 28px;
+  font-weight: bold;
+  font-family: Georgia, serif;
+  color: #6b553e;
+}
+
+.corkboard-info {
+  margin-top: 6px;
+  text-align: center;
+  width: 100%;
+}
+
+.corkboard-name {
+  font-family: Georgia, serif;
+  font-size: 13px;
+  font-weight: bold;
+  color: #2c251e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.corkboard-gen {
+  font-size: 10px;
+  font-family: monospace;
+  color: #8c7355;
+  margin-top: 2px;
+}
+
+.corkboard-pin {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.45);
+  z-index: 5;
+}
+
+.corkboard-tier-guide {
+  position: absolute;
+  left: 20px;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: bold;
+  color: rgba(90, 60, 30, 0.45);
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+

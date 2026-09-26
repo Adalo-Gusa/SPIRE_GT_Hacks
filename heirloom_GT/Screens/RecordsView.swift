@@ -88,7 +88,10 @@ struct RecordsView: View {
             RecordsBookshelfView()
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: RecordBook.self) { book in
-                    RecordPageView(book: book)
+                    switch book {
+                    case .notebook: FamilyNotebookView()
+                    default: RecordPageView(book: book)
+                    }
                 }
         }
         .tint(HeirloomColor.plum)
@@ -234,4 +237,5 @@ struct RecordPageView: View {
 
 #Preview {
     RecordsView()
+        .environmentObject(FamilyArchive())
 }

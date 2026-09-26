@@ -1,6 +1,7 @@
 # Xcode
 DerivedData/
 build/
+.voice-logs/
 *.xcuserstate
 xcuserdata/
 *.moved-aside
@@ -12,3 +13,11 @@ xcuserdata/
 # Local API keys (never commit)
 .env
 Secrets.env
+
+# Editor & Python artifacts
+.cursor/
+__pycache__/
+*.pyc
+
+# Python virtual environments
+.venv/
