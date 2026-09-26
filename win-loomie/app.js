@@ -13,6 +13,7 @@ const actionEl = document.querySelector("#action");
 const statusEl = document.querySelector("#status");
 const memoryTestEl = document.querySelector("#memory-test");
 const storyTestEl = document.querySelector("#story-test");
+const mongoTestEl = document.querySelector("#mongo-test");
 const wrapUpStoryEl = document.querySelector("#wrap-up-story");
 const newThreadEl = document.querySelector("#new-thread");
 const artifactCardEl = document.querySelector("#artifact-card");
@@ -57,6 +58,9 @@ function renderArtifact() {
     return;
   }
   artifactCardEl.hidden = false;
+  const mongoHtml = savedArtifact.mongo_saved
+    ? `<div class="mongo-badge">🍃 MongoDB Atlas: ${escapeHtml(savedArtifact.story_id || "Saved")}${savedArtifact.spark_id ? ` · Spark: ${escapeHtml(savedArtifact.spark_id)}` : ""}</div>`
+    : "";
   artifactCardEl.innerHTML = `
     <h3>${escapeHtml(savedArtifact.title)}</h3>
     <p>${escapeHtml(savedArtifact.narrativeSummary)}</p>
@@ -66,6 +70,7 @@ function renderArtifact() {
       <div><strong>People:</strong> ${escapeHtml((savedArtifact.peopleMentioned || []).join(", ") || "—")}</div>
       <div><strong>Passions:</strong> ${escapeHtml((savedArtifact.passionsOrHobbies || []).join(", ") || "—")}</div>
       <div><strong>Imagine Prompt:</strong> <em>${escapeHtml(savedArtifact.grokImaginePrompt || "—")}</em></div>
+      ${mongoHtml}
     </div>
   `;
 }
@@ -116,6 +121,7 @@ function render() {
   statusEl.textContent = live ? `${placeholder} session ${voice.sessionId}` : placeholder;
   memoryTestEl.disabled = busy || live;
   storyTestEl.disabled = busy || live;
+  if (mongoTestEl) mongoTestEl.disabled = busy || live;
   if (wrapUpStoryEl) wrapUpStoryEl.disabled = busy || live || !hasStoryTurns();
   if (newThreadEl) newThreadEl.disabled = busy;
   draftEl.disabled = busy;
@@ -866,10 +872,36 @@ wrapUpStoryEl?.addEventListener("click", async () => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-    savedArtifact = body.artifact;
+    savedArtifact = {
+      ...body.artifact,
+      mongo_saved: body.mongo_saved,
+      story_id: body.story_id,
+      spark_id: body.spark_id,
+    };
     threadId = crypto.randomUUID();
     messages.length = 0;
-    addLine("Test", `Saved “${savedArtifact.title}” to Backboard. This is a new conversation.`);
+    const mongoMsg = body.mongo_saved
+      ? `🍃 Saved to MongoDB Atlas (ID: ${body.story_id}${body.spark_id ? `, Spark: ${body.spark_id}` : ""}).`
+      : "";
+    addLine("Test", `Saved “${savedArtifact.title}” to Backboard memory. ${mongoMsg} This is a new conversation.`);
+  } catch (error) {
+    addLine("Error", error.message || String(error));
+  }
+  busy = false;
+  render();
+});
+
+mongoTestEl?.addEventListener("click", async () => {
+  busy = true;
+  render();
+  addLine("Test", "Verifying MongoDB Atlas connection and live document persistence…");
+  try {
+    const response = await fetch("/api/story/test-mongo", { method: "POST" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    addLine("Test", body.saved
+      ? `🍃 MongoDB Atlas Verified! Inserted test story “${body.title}” (ID: ${body.story_id}). Total family stories in Atlas: ${body.total_stories}.`
+      : "MongoDB verification failed to confirm saved document.");
   } catch (error) {
     addLine("Error", error.message || String(error));
   }
@@ -908,6 +940,9 @@ fetch("/api/health")
     }
     if (!health.hasBackboard) {
       addLine("Error", "BACKBOARD_API_KEY is not set. Memory recall will be empty until it is.");
+    }
+    if (!health.hasMongo) {
+      addLine("Error", "MONGODB_URI is not set. MongoDB Atlas persistence will be disabled.");
     }
   })
   .catch(() => addLine("Error", "Preview server is not responding."));

@@ -205,3 +205,17 @@ footer button {
   gap: 2px;
 }
 
+.mongo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #00ed64;
+  color: #001e2b;
+  font-weight: 650;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+  width: fit-content;
+}
+

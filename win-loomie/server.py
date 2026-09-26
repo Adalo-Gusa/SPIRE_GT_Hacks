@@ -9,11 +9,14 @@ Run: py -3 server.py
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import re
 import time
 import uuid
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -94,7 +97,8 @@ def parse_env_file(path: Path) -> dict[str, str]:
 def load_secrets() -> dict[str, str]:
     values: dict[str, str] = {}
     values.update(parse_env_file(REPO / "middleware" / ".env"))
-    for name in ("XAI_API_KEY", "BACKBOARD_API_KEY"):
+    values.update(parse_env_file(REPO / "heirloom-api" / ".env"))
+    for name in ("XAI_API_KEY", "BACKBOARD_API_KEY", "MONGODB_URI", "MONGODB_DATABASE"):
         env = os.environ.get(name)
         if env:
             values[name] = env
@@ -102,6 +106,32 @@ def load_secrets() -> dict[str, str]:
 
 
 SECRETS = load_secrets()
+
+
+def get_mongo_db():
+    raw_uri = SECRETS.get("MONGODB_URI") or ""
+    if not raw_uri:
+        return None
+    try:
+        import certifi
+        import pymongo
+        uri = raw_uri.strip().strip("\"'").replace("[", "").replace("]", "")
+        if "mailto:" in uri:
+            uri = uri.replace("mailto:", "")
+        if "://" in uri and "@" in uri:
+            prefix, rest = uri.split("://", 1)
+            if "@" in rest:
+                userinfo, hostinfo = rest.rsplit("@", 1)
+                if ":" in userinfo:
+                    username, password = userinfo.split(":", 1)
+                    encoded_password = urllib.parse.quote_plus(urllib.parse.unquote_plus(password))
+                    uri = f"{prefix}://{username}:{encoded_password}@{hostinfo}"
+        client = pymongo.MongoClient(uri, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=4000)
+        db_name = SECRETS.get("MONGODB_DATABASE") or "heirloom_db"
+        return client[db_name]
+    except Exception as err:
+        print(f"[Loomie] MongoDB connection error: {err}")
+        return None
 
 
 def should_store(text: str) -> bool:
@@ -456,6 +486,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "hasXai": bool(SECRETS.get("XAI_API_KEY")),
                 "hasBackboard": bool(SECRETS.get("BACKBOARD_API_KEY")),
+                "hasMongo": bool(SECRETS.get("MONGODB_URI")),
             })
             return
         name = STATIC.get(path)
@@ -505,7 +536,107 @@ class Handler(BaseHTTPRequestHandler):
                     commit_permanent_memory(ASSISTANT_ID, permanent_fact_summary(artifact))
                 except Exception as e:
                     print(f"[Loomie] warning: permanent memory sync failed: {e}")
-                self._json(200, {"artifact": artifact})
+
+                mongo_saved = False
+                story_id = f"story_{uuid.uuid4().hex[:12]}"
+                spark_created = None
+                try:
+                    db = get_mongo_db()
+                    if db is not None:
+                        story_doc = {
+                            "_id": story_id,
+                            "family_id": "fam_clarke_001",
+                            "author_id": "member_grandpa_joe",
+                            "title": artifact["title"],
+                            "narrative_summary": artifact["narrativeSummary"],
+                            "extracted_era": artifact.get("extractedEra"),
+                            "location": artifact.get("location"),
+                            "passions": artifact.get("passionsOrHobbies", []),
+                            "people_mentioned": artifact.get("peopleMentioned", []),
+                            "grok_imagine_prompt": artifact.get("grokImaginePrompt"),
+                            "raw_transcript": artifact.get("rawTranscript") or transcript,
+                            "created_at": datetime.datetime.now(datetime.timezone.utc),
+                        }
+                        db.stories.insert_one(story_doc)
+                        mongo_saved = True
+                        print(f"[Loomie] Successfully stored story '{artifact['title']}' in MongoDB Atlas: {story_id}")
+
+                        # Update Grandpa Joe's passions in members
+                        passions = artifact.get("passionsOrHobbies", [])
+                        if passions:
+                            db.members.update_one(
+                                {"_id": "member_grandpa_joe"},
+                                {"$addToSet": {"passions": {"$each": passions}}}
+                            )
+
+                        # Check for sparks with other family members
+                        other_members = list(db.members.find({"_id": {"$ne": "member_grandpa_joe"}}))
+                        for target in other_members:
+                            for target_passion in target.get("passions", []):
+                                tp_lower = target_passion.lower()
+                                matched = False
+                                for passion in passions:
+                                    p_lower = passion.lower()
+                                    if (tp_lower in p_lower or p_lower in tp_lower or
+                                        any(len(w) > 3 and w in p_lower for w in tp_lower.split())):
+                                        matched = True
+                                        break
+                                if matched:
+                                    spark_id = f"spark_{target_passion.lower().replace(' ', '_')}_{story_id[:8]}"
+                                    spark_doc = {
+                                        "_id": spark_id,
+                                        "family_id": "fam_clarke_001",
+                                        "elder_id": "member_grandpa_joe",
+                                        "target_member_id": target["_id"],
+                                        "matched_passion": target_passion,
+                                        "spark_message": f"Grandpa Joe shared a memory about '{artifact['title']}' connecting with {target['name']}'s passion for {target_passion}!",
+                                        "cta_action": f"Ask Grandpa Joe about {artifact['title']}",
+                                        "is_read": False,
+                                        "status": "active",
+                                        "created_at": datetime.datetime.now(datetime.timezone.utc),
+                                    }
+                                    db.sparks.update_one({"_id": spark_id}, {"$set": spark_doc}, upsert=True)
+                                    spark_created = spark_id
+                                    print(f"[Loomie] Created intergenerational spark: {spark_id} ({target_passion} -> {target['name']})")
+                except Exception as e:
+                    print(f"[Loomie] warning: MongoDB sync failed: {e}")
+
+                self._json(200, {
+                    "artifact": artifact,
+                    "mongo_saved": mongo_saved,
+                    "story_id": story_id if mongo_saved else None,
+                    "spark_id": spark_created
+                })
+            elif path == "/api/story/test-mongo":
+                db = get_mongo_db()
+                if db is None:
+                    self._json(500, {"error": "MongoDB Atlas connection not available"})
+                    return
+                test_story_id = f"story_win_test_{uuid.uuid4().hex[:8]}"
+                test_story = {
+                    "_id": test_story_id,
+                    "family_id": "fam_clarke_001",
+                    "author_id": "member_grandpa_joe",
+                    "title": "Windows Preview Test: Grandpa Joe at Lake Michigan",
+                    "narrative_summary": "In the summer of 1965, Grandpa Joe sailed a wooden sloop across Lake Michigan with Arthur.",
+                    "extracted_era": "1965",
+                    "location": "Lake Michigan",
+                    "passions": ["Sailing", "Woodworking"],
+                    "people_mentioned": ["Arthur Clarke"],
+                    "grok_imagine_prompt": "A warm 1960s Polaroid of a young man sailing a wooden boat on Lake Michigan, sun flare, film grain",
+                    "raw_transcript": "Grandpa Joe: In 1965, my brother Arthur and I sailed a wooden sloop across Lake Michigan.",
+                    "created_at": datetime.datetime.now(datetime.timezone.utc),
+                }
+                db.stories.insert_one(test_story)
+                queried = db.stories.find_one({"_id": test_story_id})
+                total_stories = db.stories.count_documents({"family_id": "fam_clarke_001"})
+                self._json(200, {
+                    "ok": True,
+                    "saved": queried is not None,
+                    "story_id": test_story_id,
+                    "title": queried["title"] if queried else None,
+                    "total_stories": total_stories
+                })
             elif path == "/api/voice/log":
                 append_voice_log(str(payload.get("sessionId") or ""), payload.get("entries") or [])
                 self._json(200, {"ok": True})
