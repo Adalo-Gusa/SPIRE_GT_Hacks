@@ -1,0 +1,17 @@
+# Environment variables & secrets
+.env
+.env.*
+*.env
+*.env.save
+
+# Python & Virtual Environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# macOS & Xcode
+.DS_Store
+UserInterfaceState.xcuserstate
+xcuserdata/
+DerivedData/
