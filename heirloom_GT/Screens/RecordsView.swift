@@ -23,7 +23,7 @@ enum RecordBook: String, CaseIterable, Identifiable, Hashable {
         case .notebook: "Stories and memories your family has recorded."
         case .cookbook: "Recipes passed down through the family."
         case .storybook: "Turn family memories into an illustrated storybook."
-        case .photoAlbum: "Photos your family has pinned to the board."
+        case .photoAlbum: "Photos from your family's posts and stories."
         }
     }
 
@@ -90,6 +90,7 @@ struct RecordsView: View {
                 .navigationDestination(for: RecordBook.self) { book in
                     switch book {
                     case .notebook: FamilyNotebookView()
+                    case .photoAlbum: PhotoAlbumView()
                     default: RecordPageView(book: book)
                     }
                 }
