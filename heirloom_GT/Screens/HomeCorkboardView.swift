@@ -1,26 +1,31 @@
 import SwiftUI
 
-/// The zoom and pan applied on top of the board's base layout.
-struct BoardCamera: Equatable {
-    static let zoomRange: ClosedRange<CGFloat> = 0.25...4
-
-    var zoom: CGFloat = 1
-    /// Screen offset of the board's origin.
-    var pan: CGSize = .zero
-}
-
 /// The home board: draggable polaroids with pins and strings that follow them, on a canvas you can
 /// pinch to zoom, drag to pan, and double-tap to focus a photo or fit everything.
+/// The pinch itself is recognized by the screen that hosts the board (see `MainTabView`), which drives `cameraController`.
 struct HomeCorkboardView: View {
     static let boardSpace = "corkboard"
 
-    @State private var board = CorkboardModel.sample()
-    @State private var camera = BoardCamera()
+    var cameraController: BoardCameraController
+    /// Opens the family feed from the floating camera button.
+    var onOpenFeed: () -> Void = {}
 
-    @State private var zoomStart: BoardCamera?
+    @State private var board = CorkboardModel.sample()
     @State private var panStart: (pan: CGSize, translation: CGSize)?
 
+    private var camera: BoardCamera {
+        get { cameraController.camera }
+        nonmutating set { cameraController.camera = newValue }
+    }
+
     var body: some View {
+        // The outer reader respects the safe area so the feed button can sit just below the status bar.
+        GeometryReader { outer in
+            board(topInset: outer.safeAreaInsets.top)
+        }
+    }
+
+    private func board(topInset: CGFloat) -> some View {
         GeometryReader { proxy in
             let viewport = proxy.size
             let baseScale = viewport.width / CorkboardModel.designWidth
@@ -43,7 +48,7 @@ struct HomeCorkboardView: View {
                         board: board,
                         center: toScreen(photo.center),
                         scale: scale,
-                        isZooming: zoomStart != nil
+                        isZooming: cameraController.isPinching
                     ) {
                         withAnimation(.snappy) {
                             camera = focusCamera(on: photo, viewport: viewport, baseScale: baseScale)
@@ -70,15 +75,19 @@ struct HomeCorkboardView: View {
                             .allowsHitTesting(false)
                     }
                 }
+
+                FeedButton(action: onOpenFeed)
+                    .padding(.top, topInset)
+                    .padding(.leading, 18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(width: viewport.width, height: viewport.height)
             .coordinateSpace(.named(Self.boardSpace))
-            .simultaneousGesture(zoomGesture)
             .accessibilityZoomAction { action in
                 let factor: CGFloat = action.direction == .zoomIn ? 1.5 : 1 / 1.5
                 let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
                 withAnimation(.snappy) {
-                    camera = zoomed(camera, to: camera.zoom * factor, keeping: center)
+                    camera = camera.zoomed(to: camera.zoom * factor, keeping: center)
                 }
             }
         }
@@ -87,21 +96,11 @@ struct HomeCorkboardView: View {
 
     // MARK: - Gestures
 
-    private var zoomGesture: some Gesture {
-        MagnifyGesture(minimumScaleDelta: 0)
-            .onChanged { value in
-                let start = zoomStart ?? camera
-                if zoomStart == nil { zoomStart = camera }
-                camera = zoomed(start, to: start.zoom * value.magnification, keeping: value.startLocation)
-            }
-            .onEnded { _ in zoomStart = nil }
-    }
-
     private var panGesture: some Gesture {
         DragGesture(coordinateSpace: .named(Self.boardSpace))
             .onChanged { value in
                 // Let the pinch own the camera while two fingers are down; resume panning from wherever it left off.
-                guard zoomStart == nil else {
+                guard !cameraController.isPinching else {
                     panStart = nil
                     return
                 }
@@ -115,17 +114,6 @@ struct HomeCorkboardView: View {
     }
 
     // MARK: - Camera math
-
-    /// Zooms from `start` so the board point under `anchor` (a screen point) stays put.
-    private func zoomed(_ start: BoardCamera, to newZoom: CGFloat, keeping anchor: CGPoint) -> BoardCamera {
-        let zoom = min(max(newZoom, BoardCamera.zoomRange.lowerBound), BoardCamera.zoomRange.upperBound)
-        let ratio = zoom / start.zoom
-        return BoardCamera(
-            zoom: zoom,
-            pan: CGSize(
-                width: anchor.x - (anchor.x - start.pan.width) * ratio,
-                height: anchor.y - (anchor.y - start.pan.height) * ratio))
-    }
 
     /// Centers `rect` (board units) in the viewport's visible area, as large as fits.
     private func camera(fitting rect: CGRect, viewport: CGSize, baseScale: CGFloat) -> BoardCamera {
@@ -169,7 +157,7 @@ private struct DraggablePolaroid: View {
     let isZooming: Bool
     var onDoubleTap: () -> Void
 
-    @State private var dragStart: CGPoint?
+    @State private var dragStart: (center: CGPoint, translation: CGSize)?
 
     var body: some View {
         PolaroidCard(image: photo.imageName.map { Image($0) }, caption: photo.caption)
@@ -182,16 +170,20 @@ private struct DraggablePolaroid: View {
             .gesture(
                 DragGesture(coordinateSpace: .named(HomeCorkboardView.boardSpace))
                     .onChanged { value in
-                        guard !isZooming else { return }
+                        // A second finger turns this into a pinch; resume from wherever the photo is afterwards.
+                        guard !isZooming else {
+                            dragStart = nil
+                            return
+                        }
                         if dragStart == nil {
-                            dragStart = photo.center
+                            dragStart = (photo.center, value.translation)
                             // No animation: an animated reorder would also animate the first few moves.
                             board.bringToFront(photo.id)
                         }
                         guard let start = dragStart else { return }
                         board.movePhoto(photo.id, to: CGPoint(
-                            x: start.x + value.translation.width / scale,
-                            y: start.y + value.translation.height / scale))
+                            x: start.center.x + (value.translation.width - start.translation.width) / scale,
+                            y: start.center.y + (value.translation.height - start.translation.height) / scale))
                     }
                     .onEnded { _ in dragStart = nil }
             )
@@ -203,6 +195,6 @@ private struct DraggablePolaroid: View {
 #Preview {
     ZStack {
         CorkboardBackground()
-        HomeCorkboardView()
+        HomeCorkboardView(cameraController: BoardCameraController())
     }
 }

@@ -118,21 +118,6 @@ private struct GlassGroup<Content: View>: View {
     }
 }
 
-private extension View {
-    /// Liquid Glass on iOS 26+, a tinted blur on earlier versions.
-    @ViewBuilder
-    func glassBackground(in shape: some Shape, tint: Color) -> some View {
-        if #available(iOS 26.0, *) {
-            glassEffect(.regular.tint(tint), in: shape)
-        } else {
-            background {
-                shape.fill(.ultraThinMaterial)
-                    .overlay(shape.fill(tint))
-            }
-        }
-    }
-}
-
 private struct TabPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -142,7 +127,7 @@ private struct TabPressStyle: ButtonStyle {
 }
 
 extension AppTab {
-    static let feed = AppTab(id: "feed", title: "feed", icon: .asset("TabFeed"))
+    static let records = AppTab(id: "records", title: "records", icon: .asset("TabRecords"))
     static let home = AppTab(id: "home", title: "home", icon: .asset("TabYarn"), isFeatured: true)
     static let map = AppTab(id: "map", title: "map", icon: .asset("TabMap"))
 }
@@ -154,10 +139,10 @@ extension AppTab {
             ZStack(alignment: .bottom) {
                 CorkboardBackground()
                 VStack(spacing: 60) {
-                    AppTabBar(tabs: [.feed, .home, .map], selection: $selection)
+                    AppTabBar(tabs: [.records, .home, .map], selection: $selection)
                     AppTabBar(
                         tabs: [
-                            .feed,
+                            .records,
                             AppTab(id: "people", title: "people", icon: .symbol("person.2.fill")),
                             .home,
                             .map,
