@@ -1,10 +1,11 @@
 import os
 import datetime
+import uuid
 import urllib.parse
 from contextlib import asynccontextmanager
 from typing import List, Optional, Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Query, status, Request
+from fastapi import FastAPI, HTTPException, Query, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -15,19 +16,31 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from dotenv import load_dotenv
 
+from backboard_sync import (
+    sync_member_to_backboard,
+    sync_item_to_backboard,
+    sync_story_to_backboard,
+    sync_post_to_backboard,
+    sync_spark_to_backboard,
+    sync_all_from_mongodb_sync,
+    fetch_existing_backboard_memories,
+    get_assistant_id,
+    get_base_url,
+    get_api_key,
+)
+
 try:
     import certifi
     ca = certifi.where()
 except ImportError:
     ca = None
 
-# Load .env from current directory, or fallback to middleware/.env
+# Load .env from current directory, and fallback/supplement with middleware/.env
 load_dotenv()
-if not os.getenv("MONGODB_URI"):
-    from pathlib import Path
-    middleware_env = Path(__file__).resolve().parent.parent / "middleware" / ".env"
-    if middleware_env.is_file():
-        load_dotenv(dotenv_path=middleware_env)
+from pathlib import Path
+middleware_env = Path(__file__).resolve().parent.parent / "middleware" / ".env"
+if middleware_env.is_file():
+    load_dotenv(dotenv_path=middleware_env, override=False)
 
 
 def sanitize_mongodb_uri(raw_uri: str) -> str:
@@ -192,7 +205,7 @@ class PassionsAppendModel(BaseModel):
 
 @app.post("/members", response_model=MemberModel, status_code=status.HTTP_201_CREATED, tags=["Members"])
 @app.post("/users", response_model=MemberModel, status_code=status.HTTP_201_CREATED, tags=["Users (Alias)"])
-async def create_member(member: MemberModel):
+async def create_member(member: MemberModel, background_tasks: BackgroundTasks):
     collection = db_config.db["members"]
     data = member.model_dump(by_alias=True)
 
@@ -223,7 +236,9 @@ async def create_member(member: MemberModel):
         await collection.update_one({"_id": child_id}, {"$addToSet": {"parents": new_id}})
 
     created = await collection.find_one({"_id": result.inserted_id})
-    return serialize_doc(created)
+    doc = serialize_doc(created)
+    background_tasks.add_task(sync_member_to_backboard, doc)
+    return doc
 
 
 @app.get("/members", response_model=List[MemberModel], tags=["Members"])
@@ -258,7 +273,7 @@ async def get_member(id: str):
 @app.patch("/members/{id}", response_model=MemberModel, tags=["Members"])
 @app.put("/users/{id}", response_model=MemberModel, tags=["Users (Alias)"])
 @app.patch("/users/{id}", response_model=MemberModel, tags=["Users (Alias)"])
-async def update_member(id: str, update: MemberUpdateModel):
+async def update_member(id: str, update: MemberUpdateModel, background_tasks: BackgroundTasks):
     collection = db_config.db["members"]
     update_data = {k: v for k, v in update.model_dump().items() if v is not None}
 
@@ -282,11 +297,13 @@ async def update_member(id: str, update: MemberUpdateModel):
     updated = await collection.find_one(id_query(id))
     if not updated:
         raise HTTPException(status_code=404, detail=f"Member '{id}' not found")
-    return serialize_doc(updated)
+    doc = serialize_doc(updated)
+    background_tasks.add_task(sync_member_to_backboard, doc)
+    return doc
 
 
 @app.post("/members/{id}/passions", response_model=MemberModel, tags=["Members"])
-async def append_member_passions(id: str, body: PassionsAppendModel):
+async def append_member_passions(id: str, body: PassionsAppendModel, background_tasks: BackgroundTasks):
     collection = db_config.db["members"]
     if body.passions:
         await collection.update_one(
@@ -299,7 +316,10 @@ async def append_member_passions(id: str, body: PassionsAppendModel):
     doc = await collection.find_one(id_query(id))
     if not doc:
         raise HTTPException(status_code=404, detail=f"Member '{id}' not found")
-    return serialize_doc(doc)
+    doc_s = serialize_doc(doc)
+    background_tasks.add_task(sync_member_to_backboard, doc_s)
+    return doc_s
+
 
 
 @app.delete("/members/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Members"])
@@ -335,7 +355,7 @@ class StoryModel(BaseModel):
 
 
 @app.post("/stories", response_model=StoryModel, status_code=status.HTTP_201_CREATED, tags=["Stories"])
-async def create_story(story: StoryModel):
+async def create_story(story: StoryModel, background_tasks: BackgroundTasks):
     collection = db_config.db["stories"]
     data = story.model_dump(by_alias=True)
     if not data.get("_id"):
@@ -343,7 +363,9 @@ async def create_story(story: StoryModel):
     data["created_at"] = data.get("created_at") or datetime.datetime.now(datetime.timezone.utc)
     res = await collection.insert_one(data)
     created = await collection.find_one({"_id": res.inserted_id})
-    return serialize_doc(created)
+    doc = serialize_doc(created)
+    background_tasks.add_task(sync_story_to_backboard, doc)
+    return doc
 
 
 @app.get("/stories", response_model=List[StoryModel], tags=["Stories"])
@@ -383,7 +405,7 @@ class SparkModel(BaseModel):
 
 
 @app.post("/sparks", response_model=SparkModel, status_code=status.HTTP_201_CREATED, tags=["Sparks"])
-async def create_spark(spark: SparkModel):
+async def create_spark(spark: SparkModel, background_tasks: BackgroundTasks):
     collection = db_config.db["sparks"]
     data = spark.model_dump(by_alias=True)
     if not data.get("_id"):
@@ -391,7 +413,9 @@ async def create_spark(spark: SparkModel):
     data["created_at"] = data.get("created_at") or datetime.datetime.now(datetime.timezone.utc)
     res = await collection.insert_one(data)
     created = await collection.find_one({"_id": res.inserted_id})
-    return serialize_doc(created)
+    doc = serialize_doc(created)
+    background_tasks.add_task(sync_spark_to_backboard, doc)
+    return doc
 
 
 @app.get("/sparks", response_model=List[SparkModel], tags=["Sparks"])
@@ -401,6 +425,55 @@ async def list_sparks(family_id: Optional[str] = Query(None)):
     cursor = collection.find(query).sort("created_at", -1)
     docs = await cursor.to_list(length=50)
     return [serialize_doc(doc) for doc in docs]
+
+
+# =====================================================================
+# FEED POSTS DOMAIN MODELS & ENDPOINTS
+# =====================================================================
+
+class FeedPostModel(BaseModel):
+    id: Optional[str] = Field(alias="_id", default=None)
+    family_id: str = Field(default="fam_clarke_001")
+    author_id: str
+    author_name: str
+    author_avatar_url: Optional[str] = None
+    content: str
+    image_url: Optional[str] = None
+    post_url: Optional[str] = None
+    source: str = "feed"
+    passions: List[str] = Field(default_factory=list)
+    location: Optional[str] = None
+    created_at: Optional[datetime.datetime] = None
+    is_unread: bool = True
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+@app.post("/posts", response_model=FeedPostModel, status_code=status.HTTP_201_CREATED, tags=["Feed Posts"])
+async def create_post(post: FeedPostModel, background_tasks: BackgroundTasks):
+    collection = db_config.db["posts"]
+    data = post.model_dump(by_alias=True)
+    if not data.get("_id"):
+        data["_id"] = f"post_{uuid.uuid4().hex[:12]}"
+    data["created_at"] = data.get("created_at") or datetime.datetime.now(datetime.timezone.utc)
+    await collection.insert_one(data)
+    created = await collection.find_one({"_id": data["_id"]})
+    doc = serialize_doc(created)
+    background_tasks.add_task(sync_post_to_backboard, doc)
+    return doc
+
+
+@app.get("/posts", response_model=List[FeedPostModel], tags=["Feed Posts"])
+async def list_posts(
+    family_id: Optional[str] = Query(None, description="Filter by family ID"),
+    limit: int = Query(50, ge=1, le=100)
+):
+    collection = db_config.db["posts"]
+    query = {"family_id": family_id} if family_id else {}
+    cursor = collection.find(query).sort("created_at", -1).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    return [serialize_doc(doc) for doc in docs]
+
 
 
 # =====================================================================
@@ -429,14 +502,16 @@ class ItemUpdateModel(BaseModel):
 
 
 @app.post("/items", response_model=ItemModel, status_code=status.HTTP_201_CREATED, tags=["Items (Legacy)"])
-async def create_item(item: ItemModel):
+async def create_item(item: ItemModel, background_tasks: BackgroundTasks):
     collection = db_config.db[os.getenv("COLLECTION_NAME", "items")]
     data = item.model_dump(by_alias=True)
     if not data.get("_id"):
         data.pop("_id", None)
     new_item = await collection.insert_one(data)
     created_item = await collection.find_one({"_id": new_item.inserted_id})
-    return serialize_doc(created_item)
+    doc = serialize_doc(created_item)
+    background_tasks.add_task(sync_item_to_backboard, doc)
+    return doc
 
 
 @app.get("/items", response_model=List[ItemModel], tags=["Items (Legacy)"])
@@ -464,7 +539,7 @@ async def get_item(id: str):
 
 
 @app.put("/items/{id}", response_model=ItemModel, tags=["Items (Legacy)"])
-async def update_item(id: str, item_update: ItemUpdateModel):
+async def update_item(id: str, item_update: ItemUpdateModel, background_tasks: BackgroundTasks):
     collection = db_config.db[os.getenv("COLLECTION_NAME", "items")]
     query = id_query(id)
     update_data = {k: v for k, v in item_update.model_dump().items() if v is not None}
@@ -472,17 +547,22 @@ async def update_item(id: str, item_update: ItemUpdateModel):
     if len(update_data) >= 1:
         await collection.update_one(query, {"$set": update_data})
         if (updated_item := await collection.find_one(query)) is not None:
-            return serialize_doc(updated_item)
+            doc = serialize_doc(updated_item)
+            background_tasks.add_task(sync_item_to_backboard, doc)
+            return doc
 
     if (existing_item := await collection.find_one(query)) is not None:
-        return serialize_doc(existing_item)
+        doc = serialize_doc(existing_item)
+        background_tasks.add_task(sync_item_to_backboard, doc)
+        return doc
 
     raise HTTPException(status_code=404, detail=f"Item {id} not found")
 
 
 @app.patch("/items/{id}", response_model=ItemModel, tags=["Items (Legacy)"])
-async def patch_item(id: str, item_update: ItemUpdateModel):
-    return await update_item(id, item_update)
+async def patch_item(id: str, item_update: ItemUpdateModel, background_tasks: BackgroundTasks):
+    return await update_item(id, item_update, background_tasks)
+
 
 
 @app.delete("/items/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Items (Legacy)"])
@@ -515,7 +595,7 @@ class ConnectionSearchRequest(BaseModel):
 
 
 @app.post("/api/archive/process-story", tags=["Archive Manager (Grok SDK)"])
-async def archive_process_story(req: ArchiveProcessRequest):
+async def archive_process_story(req: ArchiveProcessRequest, background_tasks: BackgroundTasks):
     """Grok SDK Agent endpoint to analyze story, create new person in Atlas if not found,
     save story document, enrich passions, and generate cross-generational sparks.
     """
@@ -527,6 +607,29 @@ async def archive_process_story(req: ArchiveProcessRequest):
             teller_hint=req.teller_hint,
             family_id=req.family_id,
         )
+
+        # Sync newly archived story to Backboard
+        story_summary_doc = {
+            "_id": res.story_id,
+            "family_id": req.family_id,
+            "author_id": res.author_id,
+            "title": res.title,
+            "narrative_summary": res.narrative_summary,
+            "extracted_era": res.extracted_era,
+            "location": res.location,
+            "passions": res.passions_added,
+        }
+        background_tasks.add_task(sync_story_to_backboard, story_summary_doc)
+
+        # If a new family member was automatically discovered & created, sync their profile
+        if res.is_new_member_created and res.created_member_details:
+            background_tasks.add_task(sync_member_to_backboard, res.created_member_details)
+
+        # Sync generated sparks
+        for sp in res.sparks_generated:
+            spark_dict = sp if isinstance(sp, dict) else (sp.model_dump() if hasattr(sp, "model_dump") else vars(sp))
+            background_tasks.add_task(sync_spark_to_backboard, spark_dict)
+
         return res.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Story archival failed: {str(e)}")
@@ -570,4 +673,50 @@ async def get_corkboard_tree(family_id: str = "fam_clarke_001"):
     engine = FamilyCorkboardLayoutEngine(family_id=family_id)
     layout = engine.build_layout(members)
     return layout.model_dump()
+
+
+# =====================================================================
+# BACKBOARD.IO MEMORY SYNCHRONIZATION ENDPOINTS
+# =====================================================================
+
+@app.post("/api/backboard/sync-all", tags=["Backboard Memory Sync"])
+async def trigger_backboard_sync(
+    background_tasks: BackgroundTasks,
+    force: bool = Query(False, description="Sync even if similar memory seems already recorded")
+):
+    """Triggers a background batch synchronization of all MongoDB Atlas data to Backboard.io."""
+    def run_sync():
+        import pymongo
+        raw_uri = os.getenv("MONGODB_URI") or ""
+        uri = sanitize_mongodb_uri(raw_uri)
+        db_name = os.getenv("DB_NAME") or os.getenv("MONGODB_DATABASE") or "heirloom_db"
+        client = pymongo.MongoClient(uri, tlsCAFile=ca if ca else None)
+        sync_all_from_mongodb_sync(client[db_name], skip_existing_titles=not force)
+
+    background_tasks.add_task(run_sync)
+    return {
+        "status": "sync_initiated",
+        "message": "Full MongoDB to Backboard sync task scheduled in background.",
+        "force": force,
+    }
+
+
+@app.get("/api/backboard/status", tags=["Backboard Memory Sync"])
+async def get_backboard_status():
+    """Returns the current Backboard.io configuration, assistant ID, and memory count."""
+    key = get_api_key()
+    assistant_id = get_assistant_id()
+    base_url = get_base_url()
+    memories = fetch_existing_backboard_memories() if key else []
+    return {
+        "configured": bool(key),
+        "assistant_id": assistant_id,
+        "base_url": base_url,
+        "total_memories_on_file": len(memories),
+        "sample_memories": [
+            (m.get("content", "")[:120] + "...") if isinstance(m, dict) else str(m)[:120]
+            for m in memories[:3]
+        ]
+    }
+
 
