@@ -9,3 +9,7 @@ xcuserdata/
 *.ipa
 *.dSYM.zip
 *.dSYM
+.env
+# Local API keys
+.env
+Secrets.env

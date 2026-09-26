@@ -28,11 +28,23 @@ final class LoomVoiceAudioIO {
         try session.setPreferredSampleRate(Self.targetRate)
         try session.setActive(true)
 
-        engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: nil)
-
+        // Voice processing reconfigures the I/O formats, so enable it before connecting nodes or reading formats.
         let input = engine.inputNode
         try? input.setVoiceProcessingEnabled(true)
+
+        // Give the player an explicit mono format at the output rate and let the mixer upmix/route it.
+        // scheduleBuffer requires buffers to match the player's output format exactly (including channel
+        // count), so playback buffers are built from the player's format below, not the mixer's.
+        let outputRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        guard let playerFormat = AVAudioFormat(
+            standardFormatWithSampleRate: outputRate > 0 ? outputRate : Self.targetRate,
+            channels: 1
+        ) else {
+            throw LoomError.decoding("Could not build playback format.")
+        }
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: playerFormat)
+
         let hwFormat = input.outputFormat(forBus: 0)
         guard hwFormat.sampleRate > 0, hwFormat.channelCount > 0 else {
             throw LoomError.decoding("Microphone hardware format is unavailable.")
@@ -48,7 +60,7 @@ final class LoomVoiceAudioIO {
         }
 
         captureConverter = AVAudioConverter(from: hwFormat, to: targetFormat)
-        playbackFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        playbackFormat = player.outputFormat(forBus: 0)
         if let playbackFormat {
             playbackConverter = AVAudioConverter(from: targetFormat, to: playbackFormat)
         }

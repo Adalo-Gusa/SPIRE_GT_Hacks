@@ -164,6 +164,7 @@ final class LoomVoiceSession: ObservableObject {
     }
 
     private func mintEphemeralToken() async throws -> String {
+        guard !AppConfiguration.grokAPIKey.isEmpty else { throw LoomError.missingAPIKey("XAI_API_KEY") }
         var request = URLRequest(url: AppConfiguration.grokClientSecretsURL)
         request.httpMethod = "POST"
         request.setValue("Bearer \(AppConfiguration.grokAPIKey)", forHTTPHeaderField: "Authorization")

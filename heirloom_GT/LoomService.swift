@@ -5,6 +5,7 @@ enum LoomError: LocalizedError {
     case httpStatus(Int, String)
     case emptyReply
     case decoding(String)
+    case missingAPIKey(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ enum LoomError: LocalizedError {
             return "Grok returned an empty reply."
         case .decoding(let detail):
             return "Could not decode a response: \(detail)"
+        case .missingAPIKey(let name):
+            return "\(name) is not set. Add it to heirloom_GT/Secrets.env or the scheme's environment variables."
         }
     }
 }

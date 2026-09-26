@@ -125,9 +125,9 @@ final class VoiceDebugLogger: @unchecked Sendable {
                 copy["audio"] = NSNull()
                 copy["bytes"] = Data(base64Encoded: audio)?.count ?? audio.utf8.count
             }
-            return redact(copy)
+            return redact(copy) as? [String: Any] ?? copy
         }
-        return redact(event)
+        return redact(event) as? [String: Any] ?? event
     }
 
     private func redact(_ value: Any, depth: Int = 0) -> Any {
