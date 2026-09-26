@@ -12,5 +12,17 @@
 	<!-- iOS asks the user before an app talks to devices on the local network. -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>HeirLoom connects to your family's story server on this network to save and load memories.</string>
+	<!-- Custom URL scheme for deep-linking from the Share Extension -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.heirloom.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>heirloom</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
