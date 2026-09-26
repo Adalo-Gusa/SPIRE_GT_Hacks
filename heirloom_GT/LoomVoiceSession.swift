@@ -207,6 +207,7 @@ final class LoomVoiceSession: ObservableObject {
                 "instructions": instructions,
                 "turn_detection": [
                     "type": "server_vad",
+                    "threshold": AppConfiguration.grokVoiceVADThreshold,
                     "silence_duration_ms": AppConfiguration.grokVoiceSilenceMs
                 ],
                 "reasoning": ["effort": "none"],
@@ -488,8 +489,8 @@ final class LoomVoiceSession: ObservableObject {
             return
         }
 
-        // Suppress speaker feedback while Loomie is actively speaking, unless user barges in (rms >= 0.12)
-        if (phase == .speaking || audioIO?.isActivelyPlaying == true) && rms < 0.12 {
+        // Suppress speaker feedback while Loomie is audible (plus a short echo tail), unless user barges in (rms >= 0.12)
+        if (phase == .speaking || audioIO?.isInEchoWindow == true) && rms < 0.12 {
             return
         }
 

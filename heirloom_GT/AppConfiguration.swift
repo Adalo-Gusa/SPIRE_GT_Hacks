@@ -20,6 +20,10 @@ enum AppConfiguration {
     /// How long you can pause before Loomie treats your turn as finished and answers (milliseconds).
     /// Tuned to 1,200 ms (1.2s): allows a relaxed breathing pause mid-story without cutoffs, while answering promptly.
     static let grokVoiceSilenceMs = 1_200
+    /// Server speech-detection sensitivity (0–1). Lower picks up quieter speech; too low reacts to background noise.
+    static let grokVoiceVADThreshold = 0.3
+    /// Most the app will amplify the microphone (8 ≈ +18 dB) to bring quiet speech up to a normal level.
+    static let voiceInputMaxGain: Float = 8
     static let grokRealtimeURL = URL(string: "wss://api.x.ai/v1/realtime?model=\(grokVoiceModel)")!
     static let grokClientSecretsURL = URL(string: "https://api.x.ai/v1/realtime/client_secrets")!
 
@@ -47,12 +51,14 @@ enum AppConfiguration {
 
     // MARK: - MongoDB Atlas Configuration
     static let mongoDBDatabase = secret("MONGODB_DATABASE").isEmpty ? "heirloom_db" : secret("MONGODB_DATABASE")
-    static let mongoDBCluster = secret("MONGODB_CLUSTER").isEmpty ? "TestCluster" : secret("MONGODB_CLUSTER")
     static let mongoDBFamilyId = secret("HEIRLOOM_FAMILY_ID").isEmpty ? "fam_clarke_001" : secret("HEIRLOOM_FAMILY_ID")
-    static let atlasDataAPIKey = secret("ATLAS_DATA_API_KEY")
-    static let atlasDataAPIBaseURL = URL(string: secret("ATLAS_DATA_API_URL").isEmpty
-        ? "https://data.mongodb-api.com/app/data-heirloom/endpoint/data/v1"
-        : secret("ATLAS_DATA_API_URL"))!
+    /// The HeirLoom FastAPI server (`heirloom-api/main.py`), which reads and writes MongoDB Atlas with a
+    /// `MONGODB_URI` connection string. The simulator reaches a server on this Mac at 127.0.0.1; a physical
+    /// phone needs the Mac's network address (or a deployed server) in `HEIRLOOM_API_URL`.
+    /// (MongoDB retired the Atlas Data API the app used before, so the app can't write to Atlas directly.)
+    static let heirloomAPIBaseURL = URL(string: secret("HEIRLOOM_API_URL").isEmpty
+        ? "http://127.0.0.1:8000"
+        : secret("HEIRLOOM_API_URL"))!
 
     // MARK: - Secrets
 

@@ -15,16 +15,33 @@ final class LoomVoiceAudioIO {
     private var playbackFormat: AVAudioFormat?
     private var oddByte: UInt8?
     private var captureBuffer = Data()
+    /// Current microphone boost (1 = unchanged), adapted per buffer by `applyInputGain`.
+    private var inputGain: Float = 1
+    /// When Loomie's last reply buffer actually finished playing (see `isInEchoWindow`).
+    private var lastPlaybackFinished: Date?
     private var started = false
     private let lock = NSLock()
 
     var onPlaybackCompleted: (@Sendable () -> Void)?
+    /// Reply buffers scheduled but not yet heard. Counted down by the player's "played back" callback rather
+    /// than "consumed", because output latency varies a lot (it's seconds on the simulator).
     private var activePlaybackBuffers = 0
 
     var isActivelyPlaying: Bool {
         lock.lock()
         defer { lock.unlock() }
         return activePlaybackBuffers > 0
+    }
+
+    /// True while Loomie is audible, plus a short tail for speaker echo and room reverb to die down.
+    var isInEchoWindow: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return echoWindowLocked
+    }
+
+    private var echoWindowLocked: Bool {
+        activePlaybackBuffers > 0 || (lastPlaybackFinished.map { Date() < $0.addingTimeInterval(0.5) } ?? false)
     }
 
     // Capture diagnostics, reported through `snapshot()` (guarded by `lock`).
@@ -199,16 +216,17 @@ final class LoomVoiceAudioIO {
         }
         if dest.frameLength == 0 { return }
 
-        // Schedule buffer sequentially in the player queue and track completion
+        // Schedule buffer sequentially in the player queue and track when it has actually been heard
         lock.lock()
         activePlaybackBuffers += 1
         lock.unlock()
 
-        player.scheduleBuffer(dest) { [weak self] in
+        player.scheduleBuffer(dest, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
             guard let self else { return }
             self.lock.lock()
             self.activePlaybackBuffers = max(0, self.activePlaybackBuffers - 1)
             let isDone = (self.activePlaybackBuffers == 0)
+            if isDone { self.lastPlaybackFinished = Date() }
             self.lock.unlock()
             if isDone {
                 self.onPlaybackCompleted?()
@@ -223,6 +241,7 @@ final class LoomVoiceAudioIO {
         lock.lock()
         oddByte = nil
         activePlaybackBuffers = 0
+        lastPlaybackFinished = Date()
         lock.unlock()
         player.stop()
         player.play()
@@ -244,6 +263,7 @@ final class LoomVoiceAudioIO {
             "captured_chunks": capturedChunks,
             "convert_failures": convertFailures,
             "last_capture_error": lastCaptureError,
+            "input_gain": inputGain,
             "config_changes": configChanges,
             "running_after_start": runningAfterStart
         ]
@@ -293,6 +313,7 @@ final class LoomVoiceAudioIO {
             noteCaptureFailure(error?.localizedDescription ?? "converter produced no frames from \(buffer.format)")
             return
         }
+        applyInputGain(channels[0], count: Int(dest.frameLength))
         let byteCount = Int(dest.frameLength) * 2
         let rawData = Data(bytes: channels[0], count: byteCount)
 
@@ -315,6 +336,50 @@ final class LoomVoiceAudioIO {
 
         for (chunk, rms) in chunksToEmit {
             onCapture?(chunk, rms)
+        }
+    }
+
+    /// Automatic gain: lifts quiet speech toward a normal speaking level so the server's speech detection
+    /// catches it the first time. It never boosts near-silence (so hiss isn't amplified), never clips (the gain
+    /// is capped by the block's peak), and stays off while Loomie is audible, so her voice leaking into the mic
+    /// isn't amplified past the barge-in level `LoomVoiceSession` uses to tell a real interruption from echo.
+    private func applyInputGain(_ samples: UnsafeMutablePointer<Int16>, count: Int) {
+        guard count > 0 else { return }
+        lock.lock()
+        let loomieAudible = echoWindowLocked
+        lock.unlock()
+        if loomieAudible { return }
+
+        let targetRMS: Float = 0.08
+        let noiseFloor: Float = 0.004
+        let maxGain = AppConfiguration.voiceInputMaxGain
+
+        var sumSquares: Float = 0
+        var peak: Float = 0
+        for index in 0..<count {
+            let value = Float(samples[index]) / 32768
+            sumSquares += value * value
+            peak = max(peak, abs(value))
+        }
+        let rms = sqrt(sumSquares / Float(count))
+
+        lock.lock()
+        var gain = inputGain
+        if rms > noiseFloor {
+            let desired = min(max(targetRMS / rms, 1), maxGain)
+            // Come down quickly when speech gets louder, rise gently when it gets quieter.
+            gain += (desired - gain) * (desired < gain ? 0.5 : 0.15)
+        }
+        // Never push the loudest sample past 95% of full scale.
+        if peak > 0 { gain = min(gain, 0.95 / peak) }
+        gain = max(gain, 1)
+        inputGain = gain
+        lock.unlock()
+
+        guard gain > 1.001 else { return }
+        for index in 0..<count {
+            let boosted = Float(samples[index]) * gain
+            samples[index] = Int16(max(-32767, min(32767, boosted)))
         }
     }
 

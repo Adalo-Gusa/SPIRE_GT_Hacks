@@ -120,7 +120,7 @@ final class MongoDBManager: ObservableObject {
     /// Default to localhost:8000, configurable via AppConfiguration.
     var baseURL: String
 
-    init(baseURL: String = "http://127.0.0.1:8000") {
+    init(baseURL: String = AppConfiguration.heirloomAPIBaseURL.absoluteString) {
         self.baseURL = baseURL
         loadFallbackUsers()
     }

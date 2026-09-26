@@ -40,19 +40,24 @@ final class LoomVoiceViewModel: ObservableObject {
             print("[Loomie] warning: permanent memory sync failed: \(error.localizedDescription); local copy preserved")
         }
 
-        // Sync to MongoDB Atlas 'stories' collection & update elder passions
+        // Save to the MongoDB Atlas 'stories' collection, then add any new passions to the elder's profile.
+        // Each step reports its own result so a failure isn't hidden behind a success message.
+        let storyDoc = StoryDocument(artifact: artifact, familyId: AppConfiguration.mongoDBFamilyId, authorId: "member_grandpa_joe")
         do {
-            let storyDoc = StoryDocument(artifact: artifact, familyId: AppConfiguration.mongoDBFamilyId, authorId: "member_grandpa_joe")
             try await MongoDBAtlasService.shared.insertStory(storyDoc)
-            if !artifact.passionsOrHobbies.isEmpty {
+            print("[Loomie] saved story to MongoDB Atlas 'stories' collection")
+        } catch {
+            print("[Loomie] warning: couldn't save story to MongoDB Atlas (\(error.localizedDescription)); kept a local copy. Is heirloom-api running at \(AppConfiguration.heirloomAPIBaseURL.absoluteString)?")
+        }
+        if !artifact.passionsOrHobbies.isEmpty {
+            do {
                 try await MongoDBAtlasService.shared.appendPassionsToMember(
                     memberId: "member_grandpa_joe",
                     newPassions: artifact.passionsOrHobbies
                 )
+            } catch {
+                print("[Loomie] warning: couldn't update member passions in MongoDB Atlas (\(error.localizedDescription))")
             }
-            print("[Loomie] synced story to MongoDB Atlas 'stories' collection")
-        } catch {
-            print("[Loomie] warning: MongoDB Atlas sync failed: \(error.localizedDescription); local copy preserved")
         }
 
         return artifact
