@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// One of the three family records reachable from the bookshelf.
+/// One of the family records reachable from the bookshelf.
 enum RecordBook: String, CaseIterable, Identifiable, Hashable {
     case notebook
     case cookbook
     case storybook
+    case photoAlbum
 
     var id: String { rawValue }
 
@@ -13,6 +14,7 @@ enum RecordBook: String, CaseIterable, Identifiable, Hashable {
         case .notebook: "Family Notebook"
         case .cookbook: "Family Cookbook"
         case .storybook: "Create a Storybook"
+        case .photoAlbum: "Photo Album"
         }
     }
 
@@ -21,6 +23,7 @@ enum RecordBook: String, CaseIterable, Identifiable, Hashable {
         case .notebook: "Stories and memories your family has recorded."
         case .cookbook: "Recipes passed down through the family."
         case .storybook: "Turn family memories into an illustrated storybook."
+        case .photoAlbum: "Photos your family has pinned to the board."
         }
     }
 
@@ -29,6 +32,7 @@ enum RecordBook: String, CaseIterable, Identifiable, Hashable {
         case .notebook: "book.closed"
         case .cookbook: "fork.knife"
         case .storybook: "sparkles"
+        case .photoAlbum: "photo.on.rectangle"
         }
     }
 
@@ -37,6 +41,7 @@ enum RecordBook: String, CaseIterable, Identifiable, Hashable {
         case .notebook: HeirloomColor.notebookPlum
         case .cookbook: HeirloomColor.rose
         case .storybook: HeirloomColor.polaroidFrame
+        case .photoAlbum: HeirloomColor.albumBrown
         }
     }
 
@@ -50,23 +55,26 @@ enum RecordBook: String, CaseIterable, Identifiable, Hashable {
         case .notebook: "BookNotebook"
         case .cookbook: "BookCookbook"
         case .storybook: "BookStorybook"
+        case .photoAlbum: "BookPhotoAlbum"
         }
     }
 
     /// Frames from the Figma "records bookshelf" frame (435pt wide).
     var labelFrame: CGRect {
         switch self {
-        case .notebook: CGRect(x: 142, y: 43, width: 238, height: 72)
-        case .cookbook: CGRect(x: 22, y: 125, width: 243.9, height: 72)
-        case .storybook: CGRect(x: 142, y: 207, width: 243.9, height: 72)
+        case .cookbook: CGRect(x: 100, y: 439, width: 243.9, height: 63)
+        case .notebook: CGRect(x: 100, y: 515, width: 243.9, height: 63)
+        case .storybook: CGRect(x: 100, y: 591, width: 243.9, height: 63)
+        case .photoAlbum: CGRect(x: 100, y: 667, width: 243.9, height: 63)
         }
     }
 
     var bookFrame: CGRect {
         switch self {
-        case .notebook: CGRect(x: 146.11, y: 305, width: 189.98, height: 319.79)
-        case .cookbook: CGRect(x: 66, y: 308.43, width: 82.4, height: 313.58)
-        case .storybook: CGRect(x: 233.09, y: 359.69, width: 141.91, height: 264.66)
+        case .notebook: CGRect(x: 119, y: 34, width: 176, height: 319.79)
+        case .cookbook: CGRect(x: 50, y: 72, width: 75, height: 281.58)
+        case .storybook: CGRect(x: 199, y: 89, width: 141.91, height: 264.66)
+        case .photoAlbum: CGRect(x: 341, y: 40, width: 46, height: 313.58)
         }
     }
 }
@@ -89,13 +97,13 @@ struct RecordsView: View {
 
 /// The shelf of books with a label button for each. A book and its label open the same page.
 struct RecordsBookshelfView: View {
-    /// The slice of the Figma frame this screen shows, from just above the labels to below the shelf.
-    private static let canvas = CGRect(x: 0, y: 30, width: 435, height: 700)
+    /// The slice of the Figma frame this screen shows, from just above the books to below the last label.
+    static let canvas = CGRect(x: 0, y: 24, width: 435, height: 716)
     /// Books drawn back to front, matching how they overlap in the design.
-    private static let shelfOrder: [RecordBook] = [.notebook, .cookbook, .storybook]
-    private static let labelOrder: [RecordBook] = [.notebook, .cookbook, .storybook]
-    /// Where the shelf's legs end, measured from the top of the canvas.
-    private static let shelfBottom: CGFloat = 690
+    private static let shelfOrder: [RecordBook] = [.notebook, .photoAlbum, .cookbook, .storybook]
+    private static let labelOrder: [RecordBook] = [.cookbook, .notebook, .storybook, .photoAlbum]
+    /// Where the lowest label (and its shadow) ends, measured from the top of the canvas.
+    private static let contentBottom: CGFloat = 712
 
     @Environment(\.tabBarTop) private var tabBarTop
     /// The book whose label or spine is being pressed; that book lifts off the shelf either way.
@@ -103,18 +111,18 @@ struct RecordsBookshelfView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            // This page runs under the tab bar (NavigationStack ignores the bar's inset), so fit the shelf
-            // into the space above the yarn button rather than the whole page.
+            // This page runs under the tab bar (NavigationStack ignores the bar's inset), so fit the shelf and
+            // labels into the space above the yarn button rather than the whole page.
             let clearHeight = tabBarTop.map { $0 - proxy.frame(in: .global).minY - 8 } ?? proxy.size.height
             let scale = min(
                 proxy.size.width / Self.canvas.width,
-                max(clearHeight, 1) / Self.shelfBottom)
+                max(clearHeight, 1) / Self.contentBottom)
 
             ZStack(alignment: .topLeading) {
                 Image("RecordsShelf")
                     .resizable()
                     .shadow(color: .black.opacity(0.25), radius: 5, x: 9, y: 8)
-                    .place(in: CGRect(x: 11.1, y: 595.1, width: 429.3, height: 130.8))
+                    .place(in: CGRect(x: 11.1, y: 327.1, width: 429.3, height: 130.8))
                     .accessibilityHidden(true)
 
                 ForEach(Self.shelfOrder) { book in
@@ -161,7 +169,7 @@ private extension View {
     func place(in frame: CGRect) -> some View {
         self
             .frame(width: frame.width, height: frame.height)
-            .position(x: frame.midX, y: frame.midY - 30)
+            .position(x: frame.midX, y: frame.midY - RecordsBookshelfView.canvas.minY)
     }
 }
 
@@ -181,10 +189,12 @@ private struct RecordLabel: View {
                 Capsule()
                     .fill(book.labelFill)
                     .shadow(color: .black.opacity(0.25), radius: 3, x: 5, y: 4)
-                Capsule()
-                    .strokeBorder(HeirloomColor.labelBorder, lineWidth: 3)
-                    .padding(.horizontal, 7.3)
-                    .padding(.vertical, 6)
+                GeometryReader { proxy in
+                    Capsule()
+                        .strokeBorder(HeirloomColor.labelBorder, lineWidth: 3)
+                        .padding(.horizontal, 7.3)
+                        .padding(.vertical, proxy.size.height * 0.083)
+                }
             }
             .contentShape(Capsule())
     }

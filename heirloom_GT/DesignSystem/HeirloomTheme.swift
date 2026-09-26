@@ -21,6 +21,7 @@ enum HeirloomColor {
     static let notebookPlum = Color(hex: 0x55324D)
     static let labelBorder = Color(hex: 0xB59878)
     static let labelMuted = Color(hex: 0x897865)
+    static let albumBrown = Color(hex: 0x8B6F52)
 }
 
 extension Color {
