@@ -128,6 +128,14 @@ class StoryAnalysis(BaseModel):
         None,
         description="Emotional tone of the memory (e.g., 'nostalgic and triumphant', 'warm and reflective', 'humorous')."
     )
+    golden_quote: Optional[str] = Field(
+        None,
+        description="The single most memorable, poignant verbatim sentence spoken by the storyteller that captures the emotional heart of this memory, or null."
+    )
+    generation_bridge: Optional[str] = Field(
+        None,
+        description="A 1-sentence thought on which younger family member or kinship branch this memory bridges to, or null."
+    )
     grok_imagine_prompt: str = Field(
         description="Prompt engineered for Grok image generation: vintage Polaroid or 35mm film aesthetic, warm cinematic lighting, authentic historical details."
     )
@@ -172,6 +180,9 @@ class ArchiveResult(BaseModel):
     grok_imagine_prompt: str
     extracted_era: Optional[str] = None
     location: Optional[str] = None
+    golden_quote: Optional[str] = None
+    emotional_tone: Optional[str] = None
+    generation_bridge: Optional[str] = None
 
 
 # --- Helper Functions ---
@@ -281,6 +292,8 @@ class ArchiveManagerAgent:
             "passions": analysis.passions_or_hobbies,
             "people_mentioned": [p.name for p in analysis.people_mentioned],
             "emotional_tone": analysis.emotional_tone,
+            "golden_quote": analysis.golden_quote,
+            "generation_bridge": analysis.generation_bridge,
             "grok_imagine_prompt": analysis.grok_imagine_prompt,
             "raw_transcript": transcript,
             "created_at": now,
@@ -321,6 +334,9 @@ class ArchiveManagerAgent:
             grok_imagine_prompt=analysis.grok_imagine_prompt,
             extracted_era=analysis.extracted_era,
             location=analysis.location,
+            golden_quote=analysis.golden_quote,
+            emotional_tone=analysis.emotional_tone,
+            generation_bridge=analysis.generation_bridge,
         )
 
     def _analyze_transcript_with_grok(

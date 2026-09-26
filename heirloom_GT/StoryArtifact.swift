@@ -8,6 +8,9 @@ struct StoryArtifact: Identifiable, Codable, Equatable {
     let location: String?
     let peopleMentioned: [String]
     let passionsOrHobbies: [String]
+    let goldenQuote: String?
+    let emotionalTone: String?
+    let generationBridge: String?
     let grokImaginePrompt: String
     let rawTranscript: String
     let createdAt: Date
@@ -20,6 +23,9 @@ struct StoryArtifact: Identifiable, Codable, Equatable {
         location: String?,
         peopleMentioned: [String],
         passionsOrHobbies: [String],
+        goldenQuote: String? = nil,
+        emotionalTone: String? = nil,
+        generationBridge: String? = nil,
         grokImaginePrompt: String,
         rawTranscript: String,
         createdAt: Date = Date()
@@ -31,6 +37,9 @@ struct StoryArtifact: Identifiable, Codable, Equatable {
         self.location = location
         self.peopleMentioned = peopleMentioned
         self.passionsOrHobbies = passionsOrHobbies
+        self.goldenQuote = goldenQuote
+        self.emotionalTone = emotionalTone
+        self.generationBridge = generationBridge
         self.grokImaginePrompt = grokImaginePrompt
         self.rawTranscript = rawTranscript
         self.createdAt = createdAt
@@ -42,6 +51,13 @@ struct StoryArtifact: Identifiable, Codable, Equatable {
         let place = location ?? "unspecified"
         let people = peopleMentioned.isEmpty ? "none named" : peopleMentioned.joined(separator: ", ")
         let passions = passionsOrHobbies.isEmpty ? "none named" : passionsOrHobbies.joined(separator: ", ")
-        return "Biographical memory. \(title). \(narrativeSummary) Era: \(era). Location: \(place). People: \(people). Passions and hobbies: \(passions)."
+        var text = "Biographical memory. \(title). \(narrativeSummary) Era: \(era). Location: \(place). People: \(people). Passions and hobbies: \(passions)."
+        if let quote = goldenQuote, !quote.isEmpty {
+            text += " Quote: \"\(quote)\"."
+        }
+        if let tone = emotionalTone, !tone.isEmpty {
+            text += " Emotional tone: \(tone)."
+        }
+        return text
     }
 }

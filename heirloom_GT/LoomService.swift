@@ -23,6 +23,54 @@ enum LoomError: LocalizedError {
     }
 }
 
+struct ActiveStoryContext: Equatable {
+    var detectedEra: String?
+    var detectedLocation: String?
+    var peopleMentioned: Set<String> = []
+    var coreTopics: Set<String> = []
+
+    var isEmpty: Bool {
+        detectedEra == nil && detectedLocation == nil && peopleMentioned.isEmpty && coreTopics.isEmpty
+    }
+
+    var promptBlock: String {
+        guard !isEmpty else { return "" }
+        var lines: [String] = ["Active Story Context (Anchors established earlier in this session):"]
+        if let era = detectedEra { lines.append("- Era / Timeframe: \(era)") }
+        if let loc = detectedLocation { lines.append("- Location / Setting: \(loc)") }
+        if !peopleMentioned.isEmpty { lines.append("- People in this story: \(peopleMentioned.sorted().joined(separator: ", "))") }
+        if !coreTopics.isEmpty { lines.append("- Crafts / Topics: \(coreTopics.sorted().joined(separator: ", "))") }
+        return lines.joined(separator: "\n")
+    }
+
+    mutating func update(from text: String) {
+        // Detect 4-digit years or decade references
+        if detectedEra == nil {
+            let yearPattern = #"\b(19\d{2}|20\d{2})\b"#
+            if let match = text.range(of: yearPattern, options: .regularExpression) {
+                detectedEra = String(text[match])
+            } else {
+                let decadePattern = #"\b('?\d0s|nineteen \w+|sixties|seventies|eighties|fifties)\b"#
+                if let match = text.range(of: decadePattern, options: [.regularExpression, .caseInsensitive]) {
+                    detectedEra = String(text[match])
+                }
+            }
+        }
+
+        // Detect common family kinship terms
+        let kinshipTerms = [
+            "brother", "sister", "mother", "father", "dad", "mom", "uncle", "aunt",
+            "grandpa", "grandma", "cousin", "wife", "husband", "daughter", "son", "roommate"
+        ]
+        let lower = text.lowercased()
+        for term in kinshipTerms {
+            if lower.contains(term) && !peopleMentioned.contains(term.capitalized) {
+                peopleMentioned.insert(term.capitalized)
+            }
+        }
+    }
+}
+
 actor LoomService {
     static let shared = LoomService()
 
@@ -30,6 +78,7 @@ actor LoomService {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private var conversations: [String: [GrokMessage]] = [:]
+    private var storyContexts: [String: ActiveStoryContext] = [:]
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -67,11 +116,16 @@ actor LoomService {
         let utterance = text.trimmingCharacters(in: .whitespacesAndNewlines)
         print("[Loomie] sendMessage thread=\(threadId) text=\(utterance)")
 
+        // Update active story tracker anchors so context survives beyond the 16-turn message limit
+        var ctx = storyContexts[threadId] ?? ActiveStoryContext()
+        ctx.update(from: utterance)
+        storyContexts[threadId] = ctx
+
         let memories = await fetchMemories(query: utterance, threadId: threadId)
         print("[Loomie] recalled \(memories.count) memories")
 
         let history = conversations[threadId] ?? []
-        let reply = try await completeWithGrok(userText: utterance, memories: memories, history: history)
+        let reply = try await completeWithGrok(userText: utterance, threadId: threadId, memories: memories, history: history)
 
         var next = history
         next.append(GrokMessage(role: "user", content: utterance))
@@ -144,20 +198,26 @@ actor LoomService {
 
     // MARK: - Grok
 
-    private func completeWithGrok(userText: String, memories: [String], history: [GrokMessage]) async throws -> String {
+    private func completeWithGrok(userText: String, threadId: String, memories: [String], history: [GrokMessage]) async throws -> String {
         let url = AppConfiguration.grokBaseURL.appendingPathComponent("chat/completions")
         let memoryBlock: String
         if memories.isEmpty {
             memoryBlock = "No prior family memories are on file for this speaker yet."
         } else {
-            memoryBlock = "Known family memories. Use these when the speaker asks you to recall something:\n"
+            memoryBlock = "Known family memories. Use these when the speaker asks you to recall something, or to gently bridge shared passions:\n"
                 + memories.map { "- \($0)" }.joined(separator: "\n")
         }
 
         var messages = [
-            GrokMessage(role: "system", content: AppConfiguration.loomieSystemPrompt),
-            GrokMessage(role: "system", content: memoryBlock)
+            GrokMessage(role: "system", content: AppConfiguration.loomieSystemPrompt)
         ]
+
+        // Inject active story context anchors so early details are never forgotten
+        if let activeCtx = storyContexts[threadId], !activeCtx.isEmpty {
+            messages.append(GrokMessage(role: "system", content: activeCtx.promptBlock))
+        }
+
+        messages.append(GrokMessage(role: "system", content: memoryBlock))
         messages.append(contentsOf: history)
         messages.append(GrokMessage(role: "user", content: userText))
 
@@ -225,15 +285,18 @@ actor LoomService {
     }
 
     private static let archivistPrompt = """
-    You are a biographical archivist. Analyze the following conversation between Loomie and an elder. Extract the key historical and biographical facts. Return ONLY a valid JSON object matching this schema:
+    You are an empathetic, world-class biographical archivist. Analyze the following conversation between Loomie and an elder to preserve their family history. Extract the key historical, sensory, and biographical facts. Return ONLY a valid JSON object matching this schema:
     {
-    "title": "Short catchy title (e.g., Rebuilding the '65 Mustang)",
-    "narrativeSummary": "1-2 sentence core biographical summary",
+    "title": "Short poetic title (e.g., Rebuilding the '65 Mustang)",
+    "narrativeSummary": "2-3 sentence core biographical summary capturing both facts and emotional feeling",
     "extractedEra": "Year, decade, or life stage if mentioned, or null",
     "location": "City, region, or landmark if mentioned, or null",
     "peopleMentioned": ["List of family/friends mentioned"],
-    "passionsOrHobbies": ["Specific skills, trades, sports, or hobbies identified"],
-    "grokImaginePrompt": "A vivid, warm 1970s Polaroid or watercolor style prompt capturing the central scene without text or modern elements"
+    "passionsOrHobbies": ["Specific skills, trades, crafts, sports, or hobbies identified"],
+    "goldenQuote": "The single most memorable, poignant verbatim sentence spoken by the storyteller that captures the emotional heart of this memory, or null",
+    "emotionalTone": "Emotional tone (e.g., nostalgic triumph, bittersweet resilience, warm humor)",
+    "generationBridge": "A 1-sentence thought on which younger family member or kinship passion this memory bridges to, or null",
+    "grokImaginePrompt": "A vivid, warm vintage Polaroid or 35mm film aesthetic prompt capturing the central scene without text or modern elements"
     }
     """
 
@@ -278,6 +341,9 @@ actor LoomService {
             location: text("location"),
             peopleMentioned: list("peopleMentioned", "people_mentioned"),
             passionsOrHobbies: list("passionsOrHobbies", "passions_or_hobbies"),
+            goldenQuote: text("goldenQuote", "golden_quote"),
+            emotionalTone: text("emotionalTone", "emotional_tone"),
+            generationBridge: text("generationBridge", "generation_bridge"),
             grokImaginePrompt: grokImaginePrompt,
             rawTranscript: transcript
         )
