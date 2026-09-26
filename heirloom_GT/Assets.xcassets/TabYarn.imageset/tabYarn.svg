@@ -1,0 +1,29 @@
+<svg width="176" height="176" viewBox="0 0 176 176" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="yarn">
+<path id="Ellipse 2" d="M88.5057 17.7414C127.054 17.7414 158.259 49.2226 158.259 88.0002C158.259 126.778 127.054 158.259 88.5057 158.259C49.9573 158.259 18.7529 126.778 18.7528 88.0002C18.7528 49.2226 49.9572 17.7414 88.5057 17.7414Z" fill="#E1C8B1" stroke="url(#paint0_linear_0_22)" stroke-width="7"/>
+<g id="Ellipse 5">
+<ellipse cx="87.4944" cy="127.448" rx="37.931" ry="14.1609" fill="#AF9D99"/>
+<ellipse cx="87.4944" cy="127.448" rx="37.931" ry="14.1609" fill="#9B37B9" fill-opacity="0.11"/>
+</g>
+<g id="yarn_2">
+<circle id="Ellipse 3" cx="88.4655" cy="82.8783" r="42.836" fill="#CB4770"/>
+<g id="Mask group">
+<mask id="mask0_0_22" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="45" y="40" width="87" height="86">
+<circle id="Ellipse 4" cx="88.4655" cy="82.8783" r="42.336" fill="#D9D9D9" stroke="#A73458"/>
+</mask>
+<g mask="url(#mask0_0_22)">
+<path id="Vector 11" d="M106.159 125.714C86.0267 123.474 48.8286 103.204 61.0938 40.0423" stroke="#A73458" stroke-width="10"/>
+<path id="Vector 12" d="M128.508 112.677C105.613 110.657 63.3091 92.3694 77.2577 35.3863" stroke="#A73458" stroke-width="10"/>
+<path id="Vector 13" d="M83.8097 80.0846C94.8708 75.4587 116.475 62.0914 114.401 45.6296" stroke="#A73458" stroke-width="10"/>
+<path id="Vector 14" d="M92.1906 97.7778C105.263 92.6518 130.794 77.8394 128.343 59.5979" stroke="#A73458" stroke-width="10"/>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_22" x1="44.6481" y1="2.1008" x2="179.589" y2="184.561" gradientUnits="userSpaceOnUse">
+<stop stop-color="#503650"/>
+<stop offset="1" stop-color="#A57E9C"/>
+</linearGradient>
+</defs>
+</svg>
