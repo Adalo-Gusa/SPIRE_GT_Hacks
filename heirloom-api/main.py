@@ -482,3 +482,65 @@ async def delete_item(id: str):
     if delete_result.deleted_count == 1:
         return
     raise HTTPException(status_code=404, detail=f"Item {id} not found")
+
+
+# --- Grok SDK Archive Manager Endpoints ---
+try:
+    from archive_manager import ArchiveManagerAgent
+    archive_agent_instance = ArchiveManagerAgent()
+except Exception as e:
+    print(f"[HeirLoom API] ArchiveManagerAgent load note: {e}")
+    archive_agent_instance = None
+
+
+class ArchiveProcessRequest(BaseModel):
+    transcript: str
+    teller_hint: Optional[str] = None
+    family_id: str = "fam_clarke_001"
+
+
+class ConnectionSearchRequest(BaseModel):
+    query: str
+    family_id: str = "fam_clarke_001"
+
+
+@app.post("/api/archive/process-story", tags=["Archive Manager (Grok SDK)"])
+async def archive_process_story(req: ArchiveProcessRequest):
+    """Grok SDK Agent endpoint to analyze story, create new person in Atlas if not found,
+    save story document, enrich passions, and generate cross-generational sparks.
+    """
+    if archive_agent_instance is None:
+        raise HTTPException(status_code=503, detail="Archive Manager Agent not initialized. Check XAI_API_KEY.")
+    try:
+        res = archive_agent_instance.process_story(
+            transcript=req.transcript,
+            teller_hint=req.teller_hint,
+            family_id=req.family_id,
+        )
+        return res.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Story archival failed: {str(e)}")
+
+
+@app.post("/api/archive/search-connections", tags=["Archive Manager (Grok SDK)"])
+async def archive_search_connections(req: ConnectionSearchRequest):
+    """Grok SDK Agent endpoint to explore and synthesize cross-generational connections."""
+    if archive_agent_instance is None:
+        raise HTTPException(status_code=503, detail="Archive Manager Agent not initialized.")
+    try:
+        res = archive_agent_instance.search_connections(
+            query=req.query,
+            family_id=req.family_id,
+        )
+        return res.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Connection search failed: {str(e)}")
+
+
+@app.get("/api/archive/digest", tags=["Archive Manager (Grok SDK)"])
+async def archive_digest(family_id: str = "fam_clarke_001"):
+    """Returns overview statistics of members, stories, and sparks in MongoDB Atlas."""
+    if archive_agent_instance is None:
+        raise HTTPException(status_code=503, detail="Archive Manager Agent not initialized.")
+    return archive_agent_instance.get_archive_digest(family_id=family_id)
+

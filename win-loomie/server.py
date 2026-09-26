@@ -134,6 +134,15 @@ def get_mongo_db():
         return None
 
 
+try:
+    from archive_manager import ArchiveManagerAgent
+    ARCHIVE_AGENT = ArchiveManagerAgent(xai_api_key=SECRETS.get("XAI_API_KEY"), model=GROK_MODEL)
+    print(f"[Loomie] Grok ArchiveManagerAgent active (DB: {ARCHIVE_AGENT.db.name if ARCHIVE_AGENT.db is not None else 'None'})")
+except Exception as _agent_err:
+    print(f"[Loomie] ArchiveManagerAgent init note: {_agent_err}")
+    ARCHIVE_AGENT = None
+
+
 def should_store(text: str) -> bool:
     collapsed = text.lower().strip()
     stripped = collapsed.strip(" \t\r\n.,!?;:\"'()[]{}")
@@ -487,7 +496,14 @@ class Handler(BaseHTTPRequestHandler):
                 "hasXai": bool(SECRETS.get("XAI_API_KEY")),
                 "hasBackboard": bool(SECRETS.get("BACKBOARD_API_KEY")),
                 "hasMongo": bool(SECRETS.get("MONGODB_URI")),
+                "hasArchiveAgent": ARCHIVE_AGENT is not None,
             })
+            return
+        elif path == "/api/archive/digest":
+            if ARCHIVE_AGENT is not None:
+                self._json(200, ARCHIVE_AGENT.get_archive_digest())
+                return
+            self._json(503, {"error": "Archive agent not initialized"})
             return
         name = STATIC.get(path)
         if not name:
@@ -531,82 +547,73 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, run_cross_session_story_test())
             elif path == "/api/story/wrap-up":
                 transcript = str(payload.get("transcript") or "")
+                teller_hint = payload.get("teller_hint") or payload.get("teller") or None
+                family_id = str(payload.get("family_id") or "fam_clarke_001")
+
+                if ARCHIVE_AGENT is not None:
+                    try:
+                        archive_res = ARCHIVE_AGENT.process_story(transcript, teller_hint=teller_hint, family_id=family_id)
+                        try:
+                            commit_permanent_memory(
+                                ASSISTANT_ID,
+                                f"Story by {archive_res.author_name}: '{archive_res.title}'. {archive_res.narrative_summary} (Passions: {', '.join(archive_res.passions_added)})"
+                            )
+                        except Exception as e:
+                            print(f"[Loomie] warning: permanent memory sync failed: {e}")
+
+                        self._json(200, {
+                            "artifact": {
+                                "title": archive_res.title,
+                                "narrativeSummary": archive_res.narrative_summary,
+                                "extractedEra": archive_res.extracted_era,
+                                "location": archive_res.location,
+                                "passionsOrHobbies": archive_res.passions_added,
+                                "grokImaginePrompt": archive_res.grok_imagine_prompt,
+                                "authorId": archive_res.author_id,
+                                "authorName": archive_res.author_name,
+                            },
+                            "mongo_saved": True,
+                            "story_id": archive_res.story_id,
+                            "author_id": archive_res.author_id,
+                            "author_name": archive_res.author_name,
+                            "is_new_member": archive_res.is_new_member_created,
+                            "new_member": archive_res.created_member_details,
+                            "spark_id": archive_res.sparks_generated[0]["_id"] if archive_res.sparks_generated else None,
+                            "sparks": archive_res.sparks_generated,
+                        })
+                        return
+                    except Exception as err:
+                        print(f"[Loomie] ArchiveManagerAgent error, using fallback: {err}")
+
+                # Legacy fallback
                 artifact = extract_story_artifact(transcript)
                 try:
                     commit_permanent_memory(ASSISTANT_ID, permanent_fact_summary(artifact))
                 except Exception as e:
                     print(f"[Loomie] warning: permanent memory sync failed: {e}")
-
-                mongo_saved = False
-                story_id = f"story_{uuid.uuid4().hex[:12]}"
-                spark_created = None
-                try:
-                    db = get_mongo_db()
-                    if db is not None:
-                        story_doc = {
-                            "_id": story_id,
-                            "family_id": "fam_clarke_001",
-                            "author_id": "member_grandpa_joe",
-                            "title": artifact["title"],
-                            "narrative_summary": artifact["narrativeSummary"],
-                            "extracted_era": artifact.get("extractedEra"),
-                            "location": artifact.get("location"),
-                            "passions": artifact.get("passionsOrHobbies", []),
-                            "people_mentioned": artifact.get("peopleMentioned", []),
-                            "grok_imagine_prompt": artifact.get("grokImaginePrompt"),
-                            "raw_transcript": artifact.get("rawTranscript") or transcript,
-                            "created_at": datetime.datetime.now(datetime.timezone.utc),
-                        }
-                        db.stories.insert_one(story_doc)
-                        mongo_saved = True
-                        print(f"[Loomie] Successfully stored story '{artifact['title']}' in MongoDB Atlas: {story_id}")
-
-                        # Update Grandpa Joe's passions in members
-                        passions = artifact.get("passionsOrHobbies", [])
-                        if passions:
-                            db.members.update_one(
-                                {"_id": "member_grandpa_joe"},
-                                {"$addToSet": {"passions": {"$each": passions}}}
-                            )
-
-                        # Check for sparks with other family members
-                        other_members = list(db.members.find({"_id": {"$ne": "member_grandpa_joe"}}))
-                        for target in other_members:
-                            for target_passion in target.get("passions", []):
-                                tp_lower = target_passion.lower()
-                                matched = False
-                                for passion in passions:
-                                    p_lower = passion.lower()
-                                    if (tp_lower in p_lower or p_lower in tp_lower or
-                                        any(len(w) > 3 and w in p_lower for w in tp_lower.split())):
-                                        matched = True
-                                        break
-                                if matched:
-                                    spark_id = f"spark_{target_passion.lower().replace(' ', '_')}_{story_id[:8]}"
-                                    spark_doc = {
-                                        "_id": spark_id,
-                                        "family_id": "fam_clarke_001",
-                                        "elder_id": "member_grandpa_joe",
-                                        "target_member_id": target["_id"],
-                                        "matched_passion": target_passion,
-                                        "spark_message": f"Grandpa Joe shared a memory about '{artifact['title']}' connecting with {target['name']}'s passion for {target_passion}!",
-                                        "cta_action": f"Ask Grandpa Joe about {artifact['title']}",
-                                        "is_read": False,
-                                        "status": "active",
-                                        "created_at": datetime.datetime.now(datetime.timezone.utc),
-                                    }
-                                    db.sparks.update_one({"_id": spark_id}, {"$set": spark_doc}, upsert=True)
-                                    spark_created = spark_id
-                                    print(f"[Loomie] Created intergenerational spark: {spark_id} ({target_passion} -> {target['name']})")
-                except Exception as e:
-                    print(f"[Loomie] warning: MongoDB sync failed: {e}")
-
-                self._json(200, {
-                    "artifact": artifact,
-                    "mongo_saved": mongo_saved,
-                    "story_id": story_id if mongo_saved else None,
-                    "spark_id": spark_created
-                })
+                self._json(200, {"artifact": artifact, "mongo_saved": False})
+            elif path == "/api/archive/search-connections":
+                query = str(payload.get("query") or "")
+                family_id = str(payload.get("family_id") or "fam_clarke_001")
+                if not query:
+                    self._json(400, {"error": "Missing query"})
+                    return
+                if ARCHIVE_AGENT is not None:
+                    try:
+                        insight = ARCHIVE_AGENT.search_connections(query, family_id=family_id)
+                        self._json(200, {
+                            "ok": True,
+                            "headline": insight.headline,
+                            "deep_connection": insight.deep_connection,
+                            "connected_members": insight.connected_members,
+                            "relevant_story_ids": insight.relevant_story_ids,
+                            "conversation_starters": insight.suggested_conversation_prompts,
+                        })
+                        return
+                    except Exception as err:
+                        self._json(500, {"error": f"Connection search failed: {err}"})
+                        return
+                self._json(503, {"error": "Archive agent not initialized"})
             elif path == "/api/story/test-mongo":
                 db = get_mongo_db()
                 if db is None:
@@ -646,7 +653,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(error)})
 
     def _json(self, status: int, body: dict) -> None:
-        data = json.dumps(body).encode("utf-8")
+        data = json.dumps(body, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))

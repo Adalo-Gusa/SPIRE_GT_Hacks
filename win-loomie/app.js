@@ -14,6 +14,7 @@ const statusEl = document.querySelector("#status");
 const memoryTestEl = document.querySelector("#memory-test");
 const storyTestEl = document.querySelector("#story-test");
 const mongoTestEl = document.querySelector("#mongo-test");
+const searchConnectionsEl = document.querySelector("#search-connections");
 const wrapUpStoryEl = document.querySelector("#wrap-up-story");
 const newThreadEl = document.querySelector("#new-thread");
 const artifactCardEl = document.querySelector("#artifact-card");
@@ -65,6 +66,7 @@ function renderArtifact() {
     <h3>${escapeHtml(savedArtifact.title)}</h3>
     <p>${escapeHtml(savedArtifact.narrativeSummary)}</p>
     <div class="meta">
+      <div><strong>Author:</strong> ${escapeHtml(savedArtifact.authorName || "Joseph Clarke")}</div>
       <div><strong>Era:</strong> ${escapeHtml(savedArtifact.extractedEra || "—")}</div>
       <div><strong>Location:</strong> ${escapeHtml(savedArtifact.location || "—")}</div>
       <div><strong>People:</strong> ${escapeHtml((savedArtifact.peopleMentioned || []).join(", ") || "—")}</div>
@@ -122,6 +124,7 @@ function render() {
   memoryTestEl.disabled = busy || live;
   storyTestEl.disabled = busy || live;
   if (mongoTestEl) mongoTestEl.disabled = busy || live;
+  if (searchConnectionsEl) searchConnectionsEl.disabled = busy || live;
   if (wrapUpStoryEl) wrapUpStoryEl.disabled = busy || live || !hasStoryTurns();
   if (newThreadEl) newThreadEl.disabled = busy;
   draftEl.disabled = busy;
@@ -874,16 +877,20 @@ wrapUpStoryEl?.addEventListener("click", async () => {
     if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
     savedArtifact = {
       ...body.artifact,
+      authorName: body.author_name || body.artifact?.authorName || "Joseph Clarke",
       mongo_saved: body.mongo_saved,
       story_id: body.story_id,
       spark_id: body.spark_id,
     };
     threadId = crypto.randomUUID();
     messages.length = 0;
+    if (body.is_new_member && body.new_member) {
+      addLine("Test", `🌱 Grok Archive Agent created NEW family member in Atlas: ${body.author_name} (${body.new_member._id}, Generation ${body.new_member.generation_tier})`);
+    }
     const mongoMsg = body.mongo_saved
-      ? `🍃 Saved to MongoDB Atlas (ID: ${body.story_id}${body.spark_id ? `, Spark: ${body.spark_id}` : ""}).`
+      ? `🍃 Saved to MongoDB Atlas (Story ID: ${body.story_id}${body.spark_id ? `, Spark: ${body.spark_id}` : ""}).`
       : "";
-    addLine("Test", `Saved “${savedArtifact.title}” to Backboard memory. ${mongoMsg} This is a new conversation.`);
+    addLine("Test", `Saved “${savedArtifact.title}” by ${body.author_name || "Elder"} to archives. ${mongoMsg} This is a new conversation.`);
   } catch (error) {
     addLine("Error", error.message || String(error));
   }
@@ -902,6 +909,30 @@ mongoTestEl?.addEventListener("click", async () => {
     addLine("Test", body.saved
       ? `🍃 MongoDB Atlas Verified! Inserted test story “${body.title}” (ID: ${body.story_id}). Total family stories in Atlas: ${body.total_stories}.`
       : "MongoDB verification failed to confirm saved document.");
+  } catch (error) {
+    addLine("Error", error.message || String(error));
+  }
+  busy = false;
+  render();
+});
+
+searchConnectionsEl?.addEventListener("click", async () => {
+  busy = true;
+  render();
+  const query = "Who in our family has creative crafts, electronics, or woodworking hobbies across generations?";
+  addLine("Test", `🔍 Grok Archive Agent searching connections across family archives: "${query}"…`);
+  try {
+    const response = await fetch("/api/archive/search-connections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    addLine("Loomie", `✨ ${body.headline}\n\n${body.deep_connection}\n\nConnected Members: ${body.connected_members?.join(", ")}`);
+    if (body.conversation_starters?.length) {
+      addLine("Test", `Conversation Starters:\n• ${body.conversation_starters.join("\n• ")}`);
+    }
   } catch (error) {
     addLine("Error", error.message || String(error));
   }
