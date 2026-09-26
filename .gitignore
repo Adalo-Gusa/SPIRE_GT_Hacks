@@ -1,3 +1,16 @@
+# Secrets
+.env
+.session_state.json
+.server_session_state.json
+*.xcconfig.local
+Secrets.xcconfig
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
 # Xcode
 DerivedData/
 build/
