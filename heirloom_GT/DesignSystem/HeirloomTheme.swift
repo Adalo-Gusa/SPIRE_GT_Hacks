@@ -72,6 +72,12 @@ extension Font {
         }
         return .system(size: size, weight: .heavy, design: .rounded)
     }
+
+    /// A serif reading face for quoted and remembered words (like a spark's story excerpt), scaling with Dynamic Type.
+    static func heirloomSerif(_ size: CGFloat, relativeTo style: Font.TextStyle = .body) -> Font {
+        let scaledSize = UIFontMetrics(forTextStyle: style.uiTextStyle).scaledValue(for: size)
+        return .system(size: scaledSize, design: .serif)
+    }
 }
 
 private extension Font.TextStyle {
