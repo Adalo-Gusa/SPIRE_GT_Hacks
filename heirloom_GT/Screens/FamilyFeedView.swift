@@ -9,7 +9,7 @@ public struct FamilyFeedView: View {
 
     // Composer State
     @State private var composerText: String = ""
-    @State private var selectedAuthorId: String = "member_alex"
+    @AppStorage(CurrentUser.defaultsKey) private var currentMemberId = CurrentUser.defaultMemberId
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     @State private var selectedImageData: Data? = nil
     @State private var isPosting: Bool = false
@@ -73,39 +73,13 @@ public struct FamilyFeedView: View {
     private var inAppComposerCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                // Author Avatar Picker
-                Menu {
-                    ForEach(archive.members) { member in
-                        Button {
-                            selectedAuthorId = member._id
-                        } label: {
-                            HStack {
-                                Text(member.name)
-                                if member._id == selectedAuthorId {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        if let member = currentAuthor {
-                            Text("Posting as \(member.name)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(HeirloomColor.plum)
-                        } else {
-                            Text("Posting as Alex Clarke")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(HeirloomColor.plum)
-                        }
-                        Image(systemName: "chevron.down")
-                            .font(.caption2)
-                            .foregroundStyle(HeirloomColor.tabLabel)
-                    }
+                // Posts always come from whoever is using this phone (see `CurrentUser`).
+                Text("Posting as \(currentAuthor?.name ?? "you")")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(HeirloomColor.plum)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(HeirloomColor.polaroidFrame.opacity(0.8), in: Capsule())
-                }
 
                 Spacer()
 
@@ -206,7 +180,7 @@ public struct FamilyFeedView: View {
     }
 
     private var currentAuthor: MemberDocument? {
-        archive.members.first { $0._id == selectedAuthorId }
+        archive.members.first { $0._id == currentMemberId }
     }
 
     private func submitPost() {
@@ -217,32 +191,40 @@ public struct FamilyFeedView: View {
         errorMessage = nil
 
         let author = currentAuthor
-        let authorName = author?.name ?? "Alex Clarke"
+        let authorName = author?.name ?? "Family member"
         let authorAvatar = author?.avatarUrl
 
-        var imageFilename: String? = nil
-        if let data = selectedImageData {
-            imageFilename = AppGroupStorage.shared.saveSharedImage(data: data, prefix: "in_app")
-        }
-
-        let newPost = FeedPostDocument(
-            id: "post_\(UUID().uuidString.prefix(8))",
-            familyId: AppConfiguration.mongoDBFamilyId,
-            authorId: selectedAuthorId,
-            authorName: authorName,
-            authorAvatarUrl: authorAvatar,
-            content: text,
-            imageUrl: imageFilename,
-            postUrl: nil,
-            source: "in_app",
-            passions: [],
-            location: nil,
-            createdAt: Date(),
-            isUnread: true
-        )
+        let photo = selectedImageData
 
         Task {
             do {
+                // Upload the photo first so the post can point at it on the server, where every phone can load
+                // it. If the upload fails, nothing is posted, rather than posting the text without its photo.
+                var imagePath: String? = nil
+                if let photo {
+                    guard let jpeg = Self.downscaledJPEG(photo) else {
+                        errorMessage = "Couldn't read that photo. Try choosing it again."
+                        isPosting = false
+                        return
+                    }
+                    imagePath = try await MongoDBAtlasService.shared.uploadImage(jpeg)
+                }
+
+                let newPost = FeedPostDocument(
+                    id: "post_\(UUID().uuidString.prefix(8))",
+                    familyId: AppConfiguration.mongoDBFamilyId,
+                    authorId: currentMemberId,
+                    authorName: authorName,
+                    authorAvatarUrl: authorAvatar,
+                    content: text,
+                    imageUrl: imagePath,
+                    postUrl: nil,
+                    source: "in_app",
+                    passions: [],
+                    location: nil,
+                    createdAt: Date(),
+                    isUnread: true
+                )
                 try await archive.addFeedPost(newPost)
                 composerText = ""
                 selectedImageData = nil
@@ -253,6 +235,21 @@ public struct FamilyFeedView: View {
                 isPosting = false
             }
         }
+    }
+
+    /// Re-encodes a picked photo as a JPEG no larger than 1600pt on its long side, so uploads stay quick.
+    private static func downscaledJPEG(_ data: Data, maxDimension: CGFloat = 1600) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let longSide = max(image.size.width, image.size.height)
+        guard longSide > maxDimension else { return image.jpegData(compressionQuality: 0.8) }
+        let scale = maxDimension / longSide
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return resized.jpegData(compressionQuality: 0.8)
     }
 }
 
@@ -382,7 +379,7 @@ struct FamilyFeedCard: View {
 
     @ViewBuilder
     private func feedPostImage(imageUrl: String) -> some View {
-        if imageUrl.starts(with: "http"), let url = URL(string: imageUrl) {
+        if let url = AppConfiguration.resolvedImageURL(imageUrl) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):

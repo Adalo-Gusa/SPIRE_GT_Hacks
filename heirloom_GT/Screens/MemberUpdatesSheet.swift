@@ -9,6 +9,7 @@ struct MemberUpdatesSheet: View {
 
     @EnvironmentObject private var archive: FamilyArchive
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(CurrentUser.defaultsKey) private var currentMemberId = CurrentUser.defaultMemberId
 
     init(
         member: MemberDocument,
@@ -161,6 +162,28 @@ struct MemberUpdatesSheet: View {
                         }
                     }
                 }
+            }
+
+            // Who's using this phone: posts and stories made here are credited to them.
+            if member._id == currentMemberId {
+                Label("You're using heirloom as \(member.name)", systemImage: "person.crop.circle.badge.checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(HeirloomColor.tabLabel)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Button {
+                    currentMemberId = member._id
+                    // Unread badges depend on who "you" are, so redraw the tree.
+                    archive.objectWillChange.send()
+                } label: {
+                    Label("This is me", systemImage: "person.crop.circle")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(HeirloomColor.board)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(HeirloomColor.plum, in: Capsule())
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(18)

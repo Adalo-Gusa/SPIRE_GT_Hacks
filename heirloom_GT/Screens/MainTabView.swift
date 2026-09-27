@@ -57,7 +57,15 @@ struct MainTabView: View {
                     .zIndex(1)
             }
         }
-        .task { await archive.refresh() }
+        // Check the family database every few seconds while the app is open, so what another phone posts or
+        // records shows up here without pulling to refresh.
+        .task(id: scenePhase) {
+            while !Task.isCancelled {
+                await archive.refresh()
+                guard scenePhase == .active else { return }
+                try? await Task.sleep(for: .seconds(8))
+            }
+        }
         .onChange(of: selection) { _, newSelection in
             if newSelection != AppTab.home.id { closeChat() }
         }

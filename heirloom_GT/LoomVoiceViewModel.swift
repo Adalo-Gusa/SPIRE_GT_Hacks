@@ -40,9 +40,11 @@ final class LoomVoiceViewModel: ObservableObject {
             print("[Loomie] warning: permanent memory sync failed: \(error.localizedDescription); local copy preserved")
         }
 
-        // Save to the MongoDB Atlas 'stories' collection, then add any new passions to the elder's profile.
-        // Each step reports its own result so a failure isn't hidden behind a success message.
-        let storyDoc = StoryDocument(artifact: artifact, familyId: AppConfiguration.mongoDBFamilyId, authorId: "member_grandpa_joe")
+        // Save to the MongoDB Atlas 'stories' collection, then add any new passions to the teller's profile.
+        // The teller is whoever is using this phone. Each step reports its own result so a failure isn't hidden
+        // behind a success message.
+        let tellerId = CurrentUser.memberId
+        let storyDoc = StoryDocument(artifact: artifact, familyId: AppConfiguration.mongoDBFamilyId, authorId: tellerId)
         do {
             try await MongoDBAtlasService.shared.insertStory(storyDoc)
             print("[Loomie] saved story to MongoDB Atlas 'stories' collection")
@@ -52,7 +54,7 @@ final class LoomVoiceViewModel: ObservableObject {
         if !artifact.passionsOrHobbies.isEmpty {
             do {
                 try await MongoDBAtlasService.shared.appendPassionsToMember(
-                    memberId: "member_grandpa_joe",
+                    memberId: tellerId,
                     newPassions: artifact.passionsOrHobbies
                 )
             } catch {

@@ -171,6 +171,17 @@ actor MongoDBAtlasService {
         print("[MongoDBAtlasService] Saved feed post '\(post._id)' to MongoDB Atlas collection 'posts'.")
     }
 
+    /// Uploads a photo (JPEG) to heirloom-api, which stores it in MongoDB, and returns its path ("/images/…")
+    /// for a post's `imageUrl`. Resolve it with `AppConfiguration.resolvedImageURL(_:)`.
+    func uploadImage(_ jpeg: Data, familyId: String = AppConfiguration.mongoDBFamilyId) async throws -> String {
+        let data = try await send(
+            "POST", "images", query: ["family_id": familyId], body: jpeg, contentType: "image/jpeg", timeout: 60)
+        struct Uploaded: Decodable { let path: String }
+        let path = try JSONDecoder().decode(Uploaded.self, from: data).path
+        print("[MongoDBAtlasService] Uploaded image \(path) (\(jpeg.count / 1024) KB).")
+        return path
+    }
+
     // MARK: - HTTP Transport
 
     /// The backend parses ISO 8601 dates (the default JSON date encoding would be misread).
@@ -201,7 +212,9 @@ actor MongoDBAtlasService {
         _ method: String,
         _ path: String,
         query: [String: String] = [:],
-        body: Data? = nil
+        body: Data? = nil,
+        contentType: String = "application/json",
+        timeout: TimeInterval = 10
     ) async throws -> Data {
         var components = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)
         if !query.isEmpty {
@@ -211,10 +224,10 @@ actor MongoDBAtlasService {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 10
+        request.timeoutInterval = timeout
         if let body {
             request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
 
         let (data, response) = try await urlSession.data(for: request)
@@ -222,12 +235,25 @@ actor MongoDBAtlasService {
             throw URLError(.badServerResponse)
         }
         guard (200...299).contains(http.statusCode) else {
-            let detail = String(data: data, encoding: .utf8) ?? ""
+            print("[MongoDBAtlasService] \(method) /\(path) returned HTTP \(http.statusCode)")
             throw NSError(domain: "HeirLoomAPI", code: http.statusCode, userInfo: [
-                NSLocalizedDescriptionKey: "HeirLoom API \(method) /\(path) returned HTTP \(http.statusCode): \(detail)"
+                NSLocalizedDescriptionKey: Self.failureReason(status: http.statusCode, body: data)
             ])
         }
         return data
+    }
+
+    /// A short, readable reason for a failed request, suitable for showing in the app. Uses the API's own
+    /// `detail` message when it sent one; a web page (e.g. a proxy or tunnel error) is summarized instead.
+    private static func failureReason(status: Int, body: Data) -> String {
+        if let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+           let detail = json["detail"] as? String, !detail.isEmpty {
+            return "\(detail) (HTTP \(status))"
+        }
+        if (500...599).contains(status) {
+            return "The family server isn't reachable right now (HTTP \(status))."
+        }
+        return "The family server turned down the request (HTTP \(status))."
     }
 
     // MARK: - Live Judging Resilient Fallback Data (3 Generations of Clarke Family)

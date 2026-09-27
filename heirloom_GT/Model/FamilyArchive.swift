@@ -28,12 +28,13 @@ final class FamilyArchive: ObservableObject {
         members = (try? await service.fetchFamilyMembers()) ?? members
 
         // Stories saved on this phone are included too, so a story shows up even if Atlas couldn't be reached.
+        // Ones the server has come back with its author; any it doesn't have were told on this phone.
         let remote = (try? await service.fetchStories()) ?? []
         let local = voiceModel.savedArtifacts.map {
-            StoryDocument(artifact: $0, familyId: AppConfiguration.mongoDBFamilyId, authorId: "member_grandpa_joe")
+            StoryDocument(artifact: $0, familyId: AppConfiguration.mongoDBFamilyId, authorId: CurrentUser.memberId)
         }
         var seen = Set<String>()
-        stories = (local + remote)
+        stories = (remote + local)
             .filter { seen.insert($0._id).inserted }
             .sorted { ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast) }
 
@@ -85,9 +86,10 @@ final class FamilyArchive: ObservableObject {
         return items.sorted { $0.date > $1.date }
     }
 
-    /// Returns how many unread updates a member has.
+    /// Returns how many unread updates a member has. Your own posts never count as unread.
     func unreadCount(for memberId: String) -> Int {
-        feedPosts.filter { $0.authorId == memberId && $0.isUnread }.count
+        guard memberId != CurrentUser.memberId else { return 0 }
+        return feedPosts.filter { $0.authorId == memberId && $0.isUnread }.count
     }
 
     /// Checks if a member has unread notifications.

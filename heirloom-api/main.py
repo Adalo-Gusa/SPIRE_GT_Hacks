@@ -7,7 +7,7 @@ from typing import List, Optional, Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query, status, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic.functional_validators import BeforeValidator
@@ -509,6 +509,49 @@ class ItemUpdateModel(BaseModel):
     description: Optional[str] = None
     tags: Optional[List[str]] = None
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
+
+
+# --- Images (photos attached to feed posts) ---
+# Stored in MongoDB rather than on this machine's disk, so every phone sees them no matter where the API runs.
+# Posts refer to a photo by the relative path "/images/<id>"; the app resolves it against its API address.
+
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+
+@app.post("/images", status_code=status.HTTP_201_CREATED, tags=["Images"])
+async def upload_image(request: Request, family_id: Optional[str] = Query(None)):
+    """Stores the raw request body (a JPEG or PNG) and returns its path."""
+    content_type = request.headers.get("content-type", "").split(";")[0].strip()
+    if content_type not in ("image/jpeg", "image/png"):
+        raise HTTPException(status_code=415, detail="Send a JPEG or PNG image.")
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=400, detail="The image was empty.")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="The image is too large (8 MB max).")
+
+    image_id = f"img_{uuid.uuid4().hex}"
+    await db_config.db["images"].insert_one({
+        "_id": image_id,
+        "family_id": family_id,
+        "content_type": content_type,
+        "data": data,
+        "created_at": datetime.datetime.now(datetime.timezone.utc),
+    })
+    return {"id": image_id, "path": f"/images/{image_id}"}
+
+
+@app.get("/images/{image_id}", tags=["Images"])
+async def get_image(image_id: str):
+    doc = await db_config.db["images"].find_one({"_id": image_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Image not found.")
+    # An image never changes once uploaded, so phones can cache it for good.
+    return Response(
+        content=bytes(doc["data"]),
+        media_type=doc.get("content_type", "image/jpeg"),
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @app.post("/items", response_model=ItemModel, status_code=status.HTTP_201_CREATED, tags=["Items (Legacy)"])

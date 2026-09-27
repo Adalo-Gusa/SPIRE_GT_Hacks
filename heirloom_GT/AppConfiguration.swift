@@ -77,6 +77,15 @@ enum AppConfiguration {
         ? "http://127.0.0.1:8000"
         : secret("HEIRLOOM_API_URL"))!
 
+    /// Where a post's or story's `imageUrl` points: a full web address as-is, or a photo stored by heirloom-api
+    /// (a relative path like "/images/img_…") on the API server. Nil for anything else, such as a file name in the
+    /// App Group container, which only exists on the phone that saved it.
+    static func resolvedImageURL(_ imageUrl: String) -> URL? {
+        if imageUrl.hasPrefix("http") { return URL(string: imageUrl) }
+        if imageUrl.hasPrefix("/images/") { return URL(string: imageUrl, relativeTo: heirloomAPIBaseURL)?.absoluteURL }
+        return nil
+    }
+
     // MARK: - Secrets
 
     /// Reads a key from the Xcode scheme's environment variables, then from the bundled,

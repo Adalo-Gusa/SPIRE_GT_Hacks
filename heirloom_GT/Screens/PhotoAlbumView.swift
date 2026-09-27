@@ -20,8 +20,7 @@ struct AlbumPhoto: Identifiable {
         guard let imageUrl = imageUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !imageUrl.isEmpty else {
             return nil
         }
-        if imageUrl.hasPrefix("http") {
-            guard let url = URL(string: imageUrl) else { return nil }
+        if let url = AppConfiguration.resolvedImageURL(imageUrl) {
             source = .remote(url)
         } else {
             source = .local(fileName: imageUrl)
