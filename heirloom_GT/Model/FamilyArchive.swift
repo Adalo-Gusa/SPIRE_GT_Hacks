@@ -11,11 +11,13 @@ final class FamilyArchive: ObservableObject {
     @Published private(set) var stories: [StoryDocument] = []
     @Published private(set) var feedPosts: [FeedPostDocument] = []
     @Published private(set) var places: [FamilyPlace] = []
+    @Published private(set) var sparks: [SparkDocument] = []
 
     /// Loomie's story extraction and saving (Backboard, Atlas, and a local copy on the phone).
     let voiceModel = LoomVoiceViewModel()
 
     private var coordinateCache: [String: CLLocationCoordinate2D?] = [:]
+    private var notifiedSparkIds: Set<String> = []
     private var isRefreshing = false
 
     /// Reloads members, stories, feed posts and places.
@@ -40,6 +42,18 @@ final class FamilyArchive: ObservableObject {
 
         // Family Feed social moments & Instagram updates
         feedPosts = (try? await service.fetchFeedPosts()) ?? feedPosts
+
+        // Intergenerational Connection Sparks from the Archiving Agent
+        let remoteSparks = (try? await service.fetchSparks()) ?? []
+        sparks = remoteSparks
+
+        // Notify user about newly discovered sparks
+        for spark in remoteSparks where !spark.isRead && !notifiedSparkIds.contains(spark._id) {
+            notifiedSparkIds.insert(spark._id)
+            let elder = members.first(where: { $0._id == spark.elderId })?.name ?? "Grandpa Joe"
+            let target = members.first(where: { $0._id == spark.targetMemberId })?.name ?? "Alex"
+            LoomNotificationManager.shared.scheduleSparkNotification(spark, elderName: elder, targetName: target)
+        }
 
         places = await placesForStories(stories)
     }

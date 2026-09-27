@@ -24,7 +24,10 @@ struct MainTabView: View {
     /// Members, stories and places shared by every page.
     @StateObject private var archive = FamilyArchive()
     @StateObject private var loomie = LoomieChatController()
+    @ObservedObject private var notifications = LoomNotificationManager.shared
     @State private var isChatOpen = false
+    @State private var loomiInitialPrompt: String? = nil
+    @State private var presentedSpark: SparkDocument? = nil
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -51,7 +54,7 @@ struct MainTabView: View {
 
             // Loomie chats over the Home board only, above the page and below the tab bar.
             if isChatOpen && selection == AppTab.home.id {
-                LoomieChatOverlay(controller: loomie) { closeChat() }
+                LoomieChatOverlay(controller: loomie, initialPrompt: loomiInitialPrompt) { closeChat() }
                     .environment(\.tabBarTop, tabBarTop)
                     .transition(.opacity)
                     .zIndex(1)
@@ -68,6 +71,10 @@ struct MainTabView: View {
         }
         .onChange(of: selection) { _, newSelection in
             if newSelection != AppTab.home.id { closeChat() }
+        }
+        .onChange(of: notifications.pendingRoute) { _, route in
+            guard let route else { return }
+            handleNotificationRoute(route)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             let bar = AppTabBar(tabs: tabs, selection: slidingSelection) {
@@ -97,6 +104,13 @@ struct MainTabView: View {
                 .presentationDetents([.medium, .large])
                 .presentationBackground(HeirloomColor.board)
         }
+        .sheet(item: $presentedSpark) { spark in
+            SparkConnectionSheet(spark: spark) { prompt in
+                openLoomieWithPrompt(prompt)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationBackground(HeirloomColor.board)
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 Task {
@@ -110,6 +124,12 @@ struct MainTabView: View {
                     await LoomOrchestrator.shared.processPendingSharedPosts(archive: archive)
                     if url.host == "shared-post" || url.host == "feed" {
                         isShowingFeed = true
+                    } else if url.host == "loomi" {
+                        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                        let prompt = components?.queryItems?.first(where: { $0.name == "prompt" })?.value
+                        openLoomieWithPrompt(prompt ?? "What is a family memory you cherish?")
+                    } else if url.host == "spark" {
+                        notifications.simulateSparkNotification(delaySeconds: 0.5, archive: archive)
                     }
                 }
             }
@@ -119,12 +139,38 @@ struct MainTabView: View {
         .environmentObject(archive)
     }
 
+    private func handleNotificationRoute(_ route: NotificationRoute) {
+        notifications.pendingRoute = nil
+        switch route {
+        case .loomiPrompt(let prompt):
+            openLoomieWithPrompt(prompt)
+        case .spark(let spark):
+            presentedSpark = spark
+        case .callMember(let name, let phone):
+            let num = phone ?? "18005550199"
+            if let url = URL(string: "tel://\(num)"), UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+            }
+        }
+    }
+
+    private func openLoomieWithPrompt(_ prompt: String) {
+        if selection != AppTab.home.id {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                selection = AppTab.home.id
+            }
+        }
+        loomiInitialPrompt = prompt
+        openChat()
+    }
+
     private func openChat() {
         withAnimation(.easeInOut(duration: 0.25)) { isChatOpen = true }
     }
 
     private func closeChat() {
         loomie.end()
+        loomiInitialPrompt = nil
         withAnimation(.easeInOut(duration: 0.25)) { isChatOpen = false }
     }
 

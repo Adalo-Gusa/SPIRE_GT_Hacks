@@ -38,9 +38,15 @@ final class LoomieChatController: ObservableObject {
     }
 
     /// Starts listening (Loomie greets first), unless a session is already running.
-    func start(threadId: String) {
+    /// An optional `initialPrompt` instructs Loomie to ask that specific biographical question immediately.
+    func start(threadId: String, initialPrompt: String? = nil) {
         guard !voice.isLive else { return }
-        voice.start(threadId: threadId)
+        if let initialPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !initialPrompt.isEmpty {
+            messages.append(ChatLine(sender: .loomie, text: initialPrompt, streaming: true))
+            voice.start(threadId: threadId, assistantGreeting: initialPrompt)
+        } else {
+            voice.start(threadId: threadId)
+        }
     }
 
     func end() {

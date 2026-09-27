@@ -86,6 +86,11 @@ struct HomeCorkboardView: View {
                     .padding(.top, topInset)
                     .padding(.leading, 18)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                NotificationDemoMenu()
+                    .padding(.top, topInset + 16)
+                    .padding(.trailing, 18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
             .frame(width: viewport.width, height: viewport.height)
             .coordinateSpace(.named(Self.boardSpace))
@@ -265,6 +270,45 @@ private struct PinnedPolaroid: View {
         }
         .position(center)
         .accessibilityHint("Tap to see member updates, double-tap to zoom.")
+    }
+}
+
+/// Floating demo menu on the Home Corkboard to preview and test re-engagement notifications.
+private struct NotificationDemoMenu: View {
+    @EnvironmentObject private var archive: FamilyArchive
+
+    var body: some View {
+        Menu {
+            Section("⚡ Intergenerational Sparks") {
+                Button {
+                    LoomNotificationManager.shared.simulateSparkNotification(delaySeconds: 2.0, archive: archive)
+                } label: {
+                    Label("Test Spark Alert (2s)", systemImage: "sparkles")
+                }
+            }
+
+            Section("🧵 Loomie Questions") {
+                Button {
+                    LoomNotificationManager.shared.simulatePromptNotification(delaySeconds: 2.0)
+                } label: {
+                    Label("Test Loomie Prompt (2s)", systemImage: "bubble.left.and.bubble.right.fill")
+                }
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(.ultraThinMaterial)
+                    .frame(width: 44, height: 44)
+                Circle()
+                    .stroke(HeirloomColor.plum.opacity(0.2), lineWidth: 1)
+                    .frame(width: 44, height: 44)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(HeirloomColor.plum)
+            }
+            .shadow(color: .black.opacity(0.15), radius: 4, x: 1, y: 2)
+        }
+        .accessibilityLabel("Test Notifications")
     }
 }
 

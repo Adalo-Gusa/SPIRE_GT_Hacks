@@ -5,6 +5,7 @@ import SwiftUI
 struct LoomieChatOverlay: View {
     @ObservedObject var controller: LoomieChatController
     @EnvironmentObject private var archive: FamilyArchive
+    var initialPrompt: String? = nil
     var onClose: () -> Void
 
     @Environment(\.tabBarTop) private var tabBarTop
@@ -31,7 +32,9 @@ struct LoomieChatOverlay: View {
             }
             .ignoresSafeArea()
         }
-        .onAppear { controller.start(threadId: archive.voiceModel.threadId) }
+        .onAppear {
+            controller.start(threadId: archive.voiceModel.threadId, initialPrompt: initialPrompt)
+        }
     }
 
     // MARK: - Header
