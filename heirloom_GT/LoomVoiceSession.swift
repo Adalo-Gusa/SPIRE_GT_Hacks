@@ -71,10 +71,12 @@ final class LoomVoiceSession: ObservableObject {
     private var speechStoppedAt: Date?
     private var sessionFacts: [String] = []
     private var seedMemories: [String] = []
+    private var customAssistantGreeting: String?
 
-    func start(threadId: String, openingText: String? = nil) {
+    func start(threadId: String, openingText: String? = nil, assistantGreeting: String? = nil) {
         guard phase == .idle else { return }
         self.threadId = threadId
+        self.customAssistantGreeting = assistantGreeting?.trimmingCharacters(in: .whitespacesAndNewlines)
         sessionId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
         logger = VoiceDebugLogger(sessionId: sessionId)
         errorMessage = nil
@@ -454,13 +456,18 @@ final class LoomVoiceSession: ObservableObject {
         guard type == "session.updated", !didGreet else { return }
         didGreet = true
         awaitingResponse = true
+        let greeting = (customAssistantGreeting?.isEmpty == false)
+            ? customAssistantGreeting!
+            : "Hi, I'm Loomie. It's so nice to hear from you."
+        currentAssistantText = greeting
+        onUpdateAssistantTurn?(greeting)
         sendJSON([
             "type": "conversation.item.create",
             "item": [
                 "type": "force_message",
                 "role": "assistant",
                 "interruptible": true,
-                "content": [["type": "output_text", "text": "Hi, I'm Loomie. It's so nice to hear from you."]]
+                "content": [["type": "output_text", "text": greeting]]
             ]
         ])
     }
@@ -640,6 +647,7 @@ final class LoomVoiceSession: ObservableObject {
         pendingAudio.removeAll()
         didGreet = false
         didConfigureSession = false
+        customAssistantGreeting = nil
         logger?.close()
         logger = nil
         phase = .idle
