@@ -40,8 +40,18 @@ function addLine(sender, text, streaming = false) {
   return line;
 }
 
-function finishStreaming() {
-  for (const line of messages) line.streaming = false;
+function finishStreaming(sender = null) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const line = messages[i];
+    if (sender && line.sender !== sender) continue;
+    const trimmed = (line.text || "").trim();
+    if (line.streaming && (!trimmed || trimmed === "…")) {
+      messages.splice(i, 1);
+    } else {
+      line.streaming = false;
+    }
+  }
+  render();
 }
 
 function updateStreaming(sender, text) {
@@ -540,20 +550,30 @@ class VoiceSession {
     } else if (type === "input_audio_buffer.speech_started") {
       this.player?.stop();
       this.logger?.log("play.stop", { reason: "barge-in", dropped_ms: 0 });
+      this.assistantText = "";
+      this.currentUserText = "";
+      if (object.item_id) this.currentUserItemId = object.item_id;
       if (this.responseActive || this.awaitingResponse) {
         this.responseActive = false;
         this.awaitingResponse = false;
         this.sendJSON({ type: "response.cancel" });
+      }
+      const hasStreamingUser = messages.some((m) => m.sender === "You" && m.streaming);
+      if (!hasStreamingUser) {
+        finishStreaming();
+        addLine("You", "…", true);
       }
       this.setPhase("listening");
     } else if (type === "input_audio_buffer.speech_stopped") {
       this.speechStoppedAt = performance.now();
       this.setPhase("thinking");
     } else if (type === "input_audio_buffer.committed") {
-      this.currentUserItemId = object.item_id || null;
-      this.currentUserText = "";
-      finishStreaming();
-      addLine("You", "…", true);
+      if (object.item_id) this.currentUserItemId = object.item_id;
+      const hasStreamingUser = messages.some((m) => m.sender === "You" && m.streaming);
+      if (!hasStreamingUser) {
+        finishStreaming();
+        addLine("You", "…", true);
+      }
     } else if (type === "conversation.item.input_audio_transcription.updated" || type === "conversation.item.input_audio_transcription.completed") {
       const text = object.transcript || object.text;
       if (text) {
@@ -569,6 +589,7 @@ class VoiceSession {
       this.awaitingResponse = false;
       this.setPhase("thinking");
     } else if (type === "response.output_audio_transcript.delta") {
+      finishStreaming("You");
       if (object.delta) updateStreaming("Loomie", (this.assistantText = (this.assistantText || "") + object.delta));
       this.setPhase("speaking");
     } else if (type === "response.output_audio_transcript.done") {

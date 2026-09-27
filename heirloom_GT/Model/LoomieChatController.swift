@@ -94,13 +94,19 @@ final class LoomieChatController: ObservableObject {
 
     private func bindVoice() {
         voice.onBeginUserTurn = { [weak self] in
-            self?.finishStreaming()
-            self?.messages.append(ChatLine(sender: .you, text: "…", streaming: true))
+            guard let self else { return }
+            // If live transcription is already updating an active user bubble, don't duplicate it
+            if self.messages.contains(where: { $0.sender == .you && $0.streaming }) {
+                return
+            }
+            self.finishStreaming()
+            self.messages.append(ChatLine(sender: .you, text: "…", streaming: true))
         }
         voice.onUpdateUserTurn = { [weak self] text in
             self?.updateStreaming(.you, text: text)
         }
         voice.onUpdateAssistantTurn = { [weak self] text in
+            self?.finishStreaming(for: .you)
             self?.updateStreaming(.loomie, text: text)
         }
         voice.onTurnFinished = { [weak self] in
@@ -125,9 +131,17 @@ final class LoomieChatController: ObservableObject {
         }
     }
 
-    private func finishStreaming() {
-        for index in messages.indices where messages[index].streaming {
-            messages[index].streaming = false
+    private func finishStreaming(for sender: ChatLine.Sender? = nil) {
+        // Discard placeholder bubbles that never received any transcription text
+        messages.removeAll { line in
+            (sender == nil || line.sender == sender) &&
+            line.streaming &&
+            (line.text == "…" || line.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        for index in messages.indices {
+            if sender == nil || messages[index].sender == sender {
+                messages[index].streaming = false
+            }
         }
     }
 }

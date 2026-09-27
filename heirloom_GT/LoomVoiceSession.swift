@@ -341,11 +341,16 @@ final class LoomVoiceSession: ObservableObject {
             audioIO?.stopPlayback()
             logger?.log("play.stop", ["reason": "barge-in", "dropped_ms": 0])
             currentAssistantText = ""
+            currentUserText = ""
+            if let itemId = object["item_id"] as? String {
+                currentUserItemId = itemId
+            }
             if responseActive || awaitingResponse {
                 responseActive = false
                 awaitingResponse = false
                 sendJSON(["type": "response.cancel"])
             }
+            onBeginUserTurn?()
             setPhase(.listening)
 
         case "input_audio_buffer.speech_stopped":
@@ -353,8 +358,9 @@ final class LoomVoiceSession: ObservableObject {
             setPhase(.thinking)
 
         case "input_audio_buffer.committed":
-            currentUserItemId = object["item_id"] as? String
-            currentUserText = ""
+            if let itemId = object["item_id"] as? String {
+                currentUserItemId = itemId
+            }
             onBeginUserTurn?()
 
         case "conversation.item.input_audio_transcription.updated",
