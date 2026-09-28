@@ -2,7 +2,9 @@
 
 HeirLoom is a native iOS application and backend platform designed to preserve family history, oral traditions, and intergenerational connections. 
 
-At the center of the system is Loomie, an oral historian voice agent powered by real-time speech and state-managed conversation memory. Spoken stories are processed, parsed, and automatically organized into an interactive corkboard family tree, generational connection matches ("Sparks"), and a 3D ancestral map.
+At the center of the system is Loomie, an oral historian voice agent powered by real-time speech and state-managed conversation memory. Spoken stories are processed, parsed, and automatically organized into an interactive corkboard family tree, generational connection matches ("Sparks"), and a 3D ancestral map
+
+Note: This project won the Meta Track at hackGT
 
 ---
 
